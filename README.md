@@ -2,6 +2,8 @@
 
 Telegram orqali kundalik xarajatlarni **ovozli xabarlar** yordamida avtomatik yozib boruvchi, ularni sun'iy intellekt (Google Gemini AI) orqali tushunib kategoriyalarga ajratuvchi, oy yakunida esa **chiroyli rang-barang infografika** va **professional Excel jadval (.xlsx)** ko'rinishida hisobot taqdim etuvchi aqlli Telegram bot.
 
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/f-1331/telegram-buxgalter)
+
 ---
 
 ## ✨ Asosiy Imkoniyatlar
