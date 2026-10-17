@@ -47,34 +47,88 @@ bot.on('callback_query:data', handleCallbackQuery);
 // Register Text handler
 bot.on('message:text', handleTextMessage);
 
-// Lightweight HTTP server for cloud platforms (Render, Railway, Koyeb, etc.)
+// Cloud & Webhook configuration
+const { webhookCallback } = require('grammy');
 const http = require('node:http');
+
 const PORT = process.env.PORT || 3000;
-const server = http.createServer((req, res) => {
+const isCloud = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+const webhookHandler = webhookCallback(bot, 'http');
+
+const server = http.createServer(async (req, res) => {
+  // Telegram Webhook endpoint
+  if (req.method === 'POST' && req.url === '/webhook') {
+    try {
+      return await webhookHandler(req, res);
+    } catch (err) {
+      console.error('[Webhook Error]:', err);
+      res.writeHead(500);
+      return res.end('Internal Server Error');
+    }
+  }
+
+  // Health check endpoint for UptimeRobot, cron-job, and browsers
   res.writeHead(200, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify({ status: 'ok', message: 'Shaxsiy AI Buxgalter bot is running 24/7!' }));
-});
-server.listen(PORT, () => {
-  console.log(`🌐 Bulutli serverlar uchun Web-port: ${PORT}`);
+  res.end(JSON.stringify({
+    status: 'ok',
+    service: 'Shaxsiy AI Buxgalter Bot',
+    mode: isCloud ? 'webhook' : 'polling',
+    uptime: Math.round(process.uptime()) + 's'
+  }));
 });
 
-// Start bot
-bot.start({
-  onStart: (botInfo) => {
-    console.log(`\n✅ Bot muvaffaqiyatli ishga tushdi!`);
-    console.log(`👤 Bot nomi: @${botInfo.username} (${botInfo.first_name})`);
-    console.log(`📅 Vaqt: ${new Date().toLocaleString()}`);
-    console.log(`⚡️ Ovozli xabarlar va matnlarni qabul qilishga tayyor.\n`);
-    console.log('Tugatish uchun klaviaturada Ctrl + C tugmalarini bosing.\n');
+server.listen(PORT, async () => {
+  console.log(`🌐 Server listening on port ${PORT} (Mode: ${isCloud ? 'CLOUD WEBHOOK' : 'LOCAL POLLING'})`);
+
+  if (isCloud) {
+    try {
+      const baseUrl = (process.env.RENDER_EXTERNAL_URL || 'https://telegram-buxgalter.onrender.com').replace(/\/$/, '');
+      const webhookUrl = `${baseUrl}/webhook`;
+      console.log(`📡 Setting Telegram Webhook to: ${webhookUrl}`);
+      
+      await bot.api.setWebhook(webhookUrl, {
+        allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: false
+      });
+      console.log(`✅ Webhook muvaffaqiyatli ulandi! Telegram xabarlari to'g'ridan-to'g'ri qabul qilinadi.`);
+    } catch (err) {
+      console.error('❌ Webhook o\'rnatishda xatolik:', err.message);
+      startPollingLoop();
+    }
+  } else {
+    startPollingLoop();
   }
 });
+
+// Robust polling loop with auto-reconnect for local mode
+async function startPollingLoop() {
+  while (true) {
+    try {
+      await bot.api.deleteWebhook({ drop_pending_updates: false }).catch(() => {});
+      console.log('🔄 Telegram polling boshlanmoqda...');
+      await bot.start({
+        onStart: (botInfo) => {
+          console.log(`\n✅ Bot muvaffaqiyatli ishga tushdi!`);
+          console.log(`👤 Bot nomi: @${botInfo.username} (${botInfo.first_name})`);
+          console.log(`⚡️ Ovozli xabarlar va matnlarni qabul qilishga tayyor.\n`);
+        }
+      });
+      break;
+    } catch (err) {
+      console.warn(`[Polling ogohlantirish] ${err.message}. 5 soniyadan keyin qayta ulanadi...`);
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+  }
+}
 
 // Handle graceful shutdown
 process.once('SIGINT', () => {
   console.log('\n🛑 Bot to\'xtatilmoqda (SIGINT)...');
+  server.close();
   bot.stop();
 });
 process.once('SIGTERM', () => {
   console.log('\n🛑 Bot to\'xtatilmoqda (SIGTERM)...');
+  server.close();
   bot.stop();
 });
