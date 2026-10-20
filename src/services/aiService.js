@@ -107,6 +107,20 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
     genAI = new GoogleGenerativeAI(config.GEMINI_API_KEY);
   }
 
+  // Clean MIME type (Telegram may send 'audio/ogg; codecs=opus')
+  let cleanMimeType = 'audio/ogg';
+  if (mimeType) {
+    if (mimeType.includes('ogg') || mimeType.includes('oga') || mimeType.includes('opus')) {
+      cleanMimeType = 'audio/ogg';
+    } else if (mimeType.includes('mp3')) {
+      cleanMimeType = 'audio/mp3';
+    } else if (mimeType.includes('wav')) {
+      cleanMimeType = 'audio/wav';
+    } else {
+      cleanMimeType = mimeType.split(';')[0].trim();
+    }
+  }
+
   const todayStr = getTodayString();
   const prompt = buildPrompt(todayStr);
   const base64Audio = audioBuffer.toString('base64');
@@ -115,7 +129,8 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
     config.GEMINI_MODEL || 'gemini-3.5-flash',
     'gemini-3.8-flash',
     'gemini-3.1-flash-lite',
-    'gemini-3.6-flash'
+    'gemini-3.6-flash',
+    'gemini-flash-latest'
   ];
 
   let lastError = null;
@@ -126,7 +141,7 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
       const result = await model.generateContent([
         {
           inlineData: {
-            mimeType: mimeType,
+            mimeType: cleanMimeType,
             data: base64Audio
           }
         },
@@ -138,7 +153,7 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
     } catch (err) {
       console.warn(`[AI Warning] Model ${modelName} bilan xatolik:`, err.message);
       lastError = err;
-      // Continue to next model fallback
+      await new Promise(r => setTimeout(r, 600));
     }
   }
 

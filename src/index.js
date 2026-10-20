@@ -73,6 +73,9 @@ const server = http.createServer(async (req, res) => {
     status: 'ok',
     service: 'Shaxsiy AI Buxgalter Bot',
     mode: isCloud ? 'webhook' : 'polling',
+    hasGeminiKey: Boolean(config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'none' && !config.GEMINI_API_KEY.includes('GEMINI_API_KALITI')),
+    model: config.GEMINI_MODEL,
+    version: '3.5-flash-voice-ready',
     uptime: Math.round(process.uptime()) + 's'
   }));
 });
