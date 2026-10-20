@@ -112,9 +112,10 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
   const base64Audio = audioBuffer.toString('base64');
 
   const modelsToTry = [
-    config.GEMINI_MODEL || 'gemini-2.0-flash',
-    'gemini-1.5-flash',
-    'gemini-1.5-pro'
+    config.GEMINI_MODEL || 'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite',
+    'gemini-3.6-flash'
   ];
 
   let lastError = null;
@@ -158,8 +159,9 @@ async function processTextMessage(text) {
 
     const prompt = `${buildPrompt(todayStr)}\n\nFoydalanuvchi matni: "${text}"`;
     const modelsToTry = [
-      config.GEMINI_MODEL || 'gemini-2.0-flash',
-      'gemini-1.5-flash'
+      config.GEMINI_MODEL || 'gemini-3.5-flash',
+      'gemini-3.8-flash',
+      'gemini-3.1-flash-lite'
     ];
 
     for (const modelName of modelsToTry) {
@@ -291,7 +293,7 @@ Foydalanuvchiga Telegram xabari formatida (HTML teglari: <b>, <i>, <code> bilan)
 Javobingiz rasmiyatchilikdan yiroq, do'stona, samimiy va o'zbekona tilda bo'lsin.
 `;
 
-    const modelsToTry = [config.GEMINI_MODEL || 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const modelsToTry = [config.GEMINI_MODEL || 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
     for (const m of modelsToTry) {
       try {
         const model = genAI.getGenerativeModel({ model: m });
@@ -388,7 +390,7 @@ Qisqa, do'stona, tushunarli va maslahatga boy qilib o'zbek tilida javob bering (
 `;
 
     try {
-      const model = genAI.getGenerativeModel({ model: config.GEMINI_MODEL || 'gemini-2.0-flash' });
+      const model = genAI.getGenerativeModel({ model: config.GEMINI_MODEL || 'gemini-3.5-flash' });
       const res = await model.generateContent(prompt);
       return res.response.text();
     } catch (err) {
