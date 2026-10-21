@@ -7,15 +7,17 @@ function getMainKeyboard() {
   return new Keyboard()
     .text('📊 Oylik hisobot').text('📈 Infografika')
     .row()
-    .text('📥 Excel hisobot').text('💰 Daromad & Qoldiq')
+    .text('💰 Daromad & Qoldiq').text('📥 Excel hisobot')
     .row()
     .text('🤝 Qarz daftari').text('📅 Bugungi hisob')
+    .row()
+    .text('🎯 Jamg\'arma maqsadlari').text('🔄 Doimiy to\'lovlar')
     .row()
     .text('💡 AI Maslahatchi').text('🔮 Kelajak prognozi')
     .row()
     .text('🎯 Oylik byudjet').text('🔍 Qidiruv')
     .row()
-    .text('🗑 Oxirgisini o\'chirish').text('ℹ️ Qo\'llanma')
+    .text('⚙️ Sozlamalar').text('ℹ️ Qo\'llanma')
     .resized()
     .persistent();
 }
@@ -54,7 +56,7 @@ function getDebtActionKeyboard(debtId) {
 }
 
 /**
- * Inline keyboard for monthly report (switch months, download excel, view infographic)
+ * Inline keyboard for monthly report (switch months, download excel, view infographic, view trend)
  */
 function getMonthReportKeyboard(currentYearMonth) {
   const [year, month] = currentYearMonth.split('-').map(Number);
@@ -81,7 +83,9 @@ function getMonthReportKeyboard(currentYearMonth) {
     .text('◀️ Oldingi oy', `rep_month_${prevStr}`)
     .text('Keyingi oy ▶️', `rep_month_${nextStr}`)
     .row()
-    .text('📈 Infografika ko\'rish', `chart_${currentYearMonth}`)
+    .text('📈 Doiraviy diagramma', `chart_${currentYearMonth}`)
+    .text('📊 Kunlik ustunli grafik', `trend_${currentYearMonth}`)
+    .row()
     .text('📥 Excel yuklab olish', `excel_${currentYearMonth}`);
 }
 

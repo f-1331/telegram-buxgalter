@@ -14,6 +14,8 @@ const {
   handleSearchExpenses
 } = require('./reportHandler');
 const { handleAIAdvisor, handleForecast, handleBudgetMenu, handleSetBudget } = require('./aiHandler');
+const { handleGoalsMenu, handleSubscriptionsMenu } = require('./goalHandler');
+const { handleSettingsMenu } = require('./settingsHandler');
 
 /**
  * Handle incoming text messages
@@ -53,6 +55,68 @@ async function handleTextMessage(ctx) {
     return handleSearchExpenses(ctx, query);
   }
 
+  // Financial Goals commands
+  if (text.startsWith('/yangi_maqsad')) {
+    const parts = text.split(/\s+/);
+    if (parts.length >= 3) {
+      const title = parts.slice(1, -1).join(' ');
+      const amountStr = parts[parts.length - 1].replace(/[^\d]/g, '');
+      const targetAmount = Number(amountStr);
+      if (title && targetAmount > 0) {
+        db.addGoal({ userId, title, targetAmount });
+        return ctx.reply(
+          `🎉 <b>Yangi maqsad yaratildi!</b>\n\n` +
+          `🎯 <b>Maqsad:</b> ${title}\n` +
+          `💰 <b>Kutilayotgan summa:</b> ${formatCurrency(targetAmount)}\n\n` +
+          `Jamg'arma to'planganda, unga pul qo'shib borishingiz mumkin!`,
+          { parse_mode: 'HTML', reply_markup: getMainKeyboard() }
+        );
+      }
+    }
+    return ctx.reply('⚠️ Format: <code>/yangi_maqsad [nomi] [summa]</code>\nMasalan: <code>/yangi_maqsad iPhone 15000000</code>', { parse_mode: 'HTML' });
+  }
+
+  if (text.startsWith('/maqsad_plus')) {
+    const parts = text.split(/\s+/);
+    if (parts.length >= 3) {
+      const goalIndex = parseInt(parts[1], 10);
+      const amount = Number(parts[2].replace(/[^\d]/g, ''));
+      const goals = db.getUserGoals(userId);
+      const goal = goals[goalIndex - 1] || goals.find(g => g.id === goalIndex);
+      if (goal && amount > 0) {
+        const res = db.addMoneyToGoal(goal.id, userId, amount);
+        const congrats = res.isReached ? '\n\n🎉 <b>TABRIKLAYMIZ! Ushbu maqsadga to\'liq erishildi!</b>' : '';
+        return ctx.reply(
+          `✅ <b>"${goal.title}"</b> maqsadiga ${formatCurrency(amount)} qo'shildi!${congrats}\n\n` +
+          `💰 Jami yig'ildi: ${formatCurrency(res.current_amount)} / ${formatCurrency(res.target_amount)}`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    }
+    return ctx.reply('⚠️ Format: <code>/maqsad_plus [№] [summa]</code>\nMasalan: <code>/maqsad_plus 1 500000</code>', { parse_mode: 'HTML' });
+  }
+
+  // Recurring Subscriptions commands
+  if (text.startsWith('/doimiy')) {
+    const parts = text.split(/\s+/);
+    if (parts.length >= 3) {
+      const title = parts[1];
+      const amount = Number(parts[2].replace(/[^\d]/g, ''));
+      const day = parts.length >= 4 ? parseInt(parts[3], 10) : 1;
+      if (title && amount > 0) {
+        db.addSubscription({ userId, title, amount, dayOfMonth: day });
+        return ctx.reply(
+          `✅ <b>Yangi doimiy to'lov saqlandi!</b>\n\n` +
+          `📌 <b>Nomi:</b> ${title}\n` +
+          `💰 <b>Summa:</b> ${formatCurrency(amount)}\n` +
+          `📅 <b>To'lov kuni:</b> Har oyning ${day}-kunida`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    }
+    return ctx.reply('⚠️ Format: <code>/doimiy [nomi] [summa] [oy kuni]</code>\nMasalan: <code>/doimiy Internet 150000 5</code>', { parse_mode: 'HTML' });
+  }
+
   // Check menu buttons
   if (text === '📊 Oylik hisobot') {
     return handleMonthlyReport(ctx);
@@ -80,6 +144,15 @@ async function handleTextMessage(ctx) {
   }
   if (text === '🔍 Qidiruv') {
     return handleSearchExpenses(ctx, '');
+  }
+  if (text === '🎯 Jamg\'arma maqsadlari' || text === '/goals') {
+    return handleGoalsMenu(ctx);
+  }
+  if (text === '🔄 Doimiy to\'lovlar' || text === '/subscriptions') {
+    return handleSubscriptionsMenu(ctx);
+  }
+  if (text === '⚙️ Sozlamalar' || text === '/settings') {
+    return handleSettingsMenu(ctx);
   }
   if (text === '🗑 Oxirgisini o\'chirish') {
     return handleUndoLastExpense(ctx);
@@ -137,6 +210,7 @@ async function handleTextMessage(ctx) {
       const monthStr = getCurrentMonthString();
       const todayTotal = db.getTodayTotal(userId, todayStr);
       const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
+      const userBudget = db.getUserBudget(userId);
 
       const responseMsg = formatAddedExpensesMessage(
         null, // No transcription needed for text
@@ -144,7 +218,8 @@ async function handleTextMessage(ctx) {
         todayTotal,
         balanceSummary.expense,
         balanceSummary.income,
-        balanceSummary.balance
+        balanceSummary.balance,
+        userBudget
       );
 
       return ctx.reply(responseMsg, {
@@ -179,19 +254,24 @@ async function handleStartCommand(ctx) {
   const firstName = ctx.from.first_name || 'foydalanuvchi';
   const welcomeText =
     `👋 <b>Assalomu alaykum, ${firstName}!</b>\n\n` +
-    `🤖 Men sizning <b>Shaxsiy AI Buxgalteringizman</b>.\n\n` +
-    `Men orqali xarajatlaringizni osongina nazorat qilib borishingiz mumkin:\n\n` +
-    `🎙 <b>Ovozli xabar yuboring:</b>\n` +
-    `<i>"Bugun taksiga 25 ming, tushlikka 60 ming ishlatdim"</i>\n\n` +
-    `✍️ <b>Yoki matn ko'rinishida yozing:</b>\n` +
-    `<i>"Bozorlik 250 ming, dorixona 45 ming"</i>\n\n` +
-    `✨ <b>Men nimalar qila olaman?</b>\n` +
-    `• Ovozli xabarni avtomatik tushunish va matnga aylantirish\n` +
-    `• Xarajatlarni intellektual kategoriyalarga ajratish\n` +
-    `• Kunlik, haftalik va oylik hisobotlar yuritish\n` +
-    `• 📈 Oy oxirida chiroyli <b>infografika va rang-barang diagrammalar</b> tuzish\n` +
-    `• 📥 Barcha ma'lumotlarni tartiblangan <b>Excel (.xlsx) jadval</b> qilib yuklab berish\n\n` +
-    `Sinab ko'rish uchun hoziroq ovozli yoki matnli xabar yuboring! 👇`;
+    `🤖 Men sizning intellektual <b>Shaxsiy AI Buxgalteringizman</b>.\n\n` +
+    `Menga moliyangizni boshqarish juda oson:\n\n` +
+    `🎙 <b>Ovozli yoki 📹 Video xabar yuboring:</b>\n` +
+    `<i>"Bugun taksiga 25 ming, tushlikka 60 ming ishlatdim"</i>\n` +
+    `<i>"Oyligim 6 million tushdi"</i>\n\n` +
+    `🧾 <b>Yoki chek / to'lov skrinshotini rasm qilib tashlang:</b>\n` +
+    `Korzinka, Makro cheklari yoki Click/Payme to'lov skrinshotlarini AI o'zi o'qib oladi!\n\n` +
+    `✍️ <b>Yoki oddiy matn ko'rinishida yozing:</b>\n` +
+    `<i>"Bozorlik 250 ming, dorixona 45 ming"</i>\n` +
+    `<i>"Akromga 150 ming qarz berdim"</i>\n\n` +
+    `✨ <b>Asosiy imkoniyatlar:</b>\n` +
+    `• 💰 <b>Kirim & Qoldiq:</b> Oylik daromad va sof jamg'arma nazorati\n` +
+    `• 🤝 <b>Qarz daftari:</b> Berilgan va olingan qarzlar hisobi\n` +
+    `• 🎯 <b>Jamg'arma maqsadlari:</b> Katta orzularga maqsadli pul yig'ish\n` +
+    `• 🔄 <b>Doimiy to'lovlar:</b> Majburiy oylik obuna va xarajatlar ro'yxati\n` +
+    `• 📈 <b>Infografika & Ustunli grafiklar:</b> Rang-barang vizual tahlillar\n` +
+    `• 📥 <b>Professional Excel hisobot:</b> Bir klikda tayyor .xlsx jadval\n\n` +
+    `Sinab ko'rish uchun hoziroq ovozli xabar yoki xarajat yuboring! 👇`;
 
   return ctx.reply(welcomeText, {
     parse_mode: 'HTML',
@@ -204,21 +284,22 @@ async function handleStartCommand(ctx) {
  */
 async function handleHelpCommand(ctx) {
   const helpText =
-    `ℹ️ <b>Shaxsiy AI Buxgalter - Qo'llanma</b>\n\n` +
-    `<b>1. Xarajat kiritish:</b>\n` +
-    `• Ovozli xabar tugmasini bosib ushlab turing va xarajatlaringizni tabiiy tilda ayting (masalan: <i>"Bugun taksiga 25 ming, tushlikka 60 ming ketdi"</i>).\n` +
-    `• Yoki oddiy matn sifatida xabar yuboring.\n\n` +
-    `<b>2. Kategoriyalar:</b>\n` +
-    `AI sizning so'zlaringizdan xarajat turini avtomatik aniqlaydi:\n` +
-    `🚕 Transport | 🍔 Oziq-ovqat va Kafe | 🛒 Bozor va Supermarket\n` +
-    `💡 Kommunal va Aloqa | 💊 Salomatlik | 🛍 Kiyim | 🎓 Ta'lim\n` +
-    `🎮 O'yin-kulgi | 🎁 Ehson va Sovg'a | 🏠 Uy va Ro'zg'or\n\n` +
-    `<b>3. Hisobotlar:</b>\n` +
-    `• <b>📊 Oylik hisobot</b> - Kategoriyalar bo'yicha jami xarajatlar va foizlar\n` +
-    `• <b>📈 Infografika</b> - Chiroyli rang-barang doiraviy diagramma (rasm ko'rinishida)\n` +
-    `• <b>📥 Excel hisobot</b> - Barcha tafsilotlar, jadvallar va hisob-kitoblar bilan tayyor .xlsx fayl\n` +
-    `• <b>🗑 Oxirgisini o'chirish</b> - Adashib kiritilgan oxirgi xarajatni bekor qilish\n\n` +
-    `Savollaringiz bo'lsa, xarajatlaringizni xabar orqali yuborishni boshlang!`;
+    `ℹ️ <b>Shaxsiy AI Buxgalter - To'liq qo'llanma</b>\n\n` +
+    `<b>1. Xarajat va Daromad kiritish:</b>\n` +
+    `• 🎙 <b>Ovozli xabar:</b> Gapiring (masalan: <i>"Bozorga 180 ming, dorixonaga 35 ming ketdi"</i>).\n` +
+    `• 📹 <b>Dumaloq video:</b> Video orqali ham tushunadi.\n` +
+    `• 🧾 <b>Chek fotosi:</b> Do'kon cheki yoki Click/Payme skrinshotini rasm qilib yuboring.\n` +
+    `• ✍️ <b>Matn:</b> Istalgan shaklda yozing.\n\n` +
+    `<b>2. Qarzlar va Jamg'armalar:</b>\n` +
+    `• Qarz: <i>"Aliga 100 ming qarz berdim"</i> yoki <i>"Sobirdan 50 ming qarz oldim"</i>.\n` +
+    `• Maqsad: <code>/yangi_maqsad iPhone 15000000</code>.\n` +
+    `• Doimiy to'lov: <code>/doimiy Internet 150000 5</code>.\n\n` +
+    `<b>3. Hisobotlar va Tahlil:</b>\n` +
+    `• <b>📊 Oylik hisobot</b> — barcha kategoriyalar foizlari bilan\n` +
+    `• <b>📈 Infografika</b> — chiroyli doiraviy va ustunli diagrammalar\n` +
+    `• <b>📥 Excel hisobot</b> — to'liq filtrlanadigan .xlsx fayl\n` +
+    `• <b>💡 AI Maslahatchi</b> — xarajatlaringiz asosida tejash strategiyasi\n` +
+    `• <b>⚙️ Sozlamalar</b> — eslatmalar va ma'lumotlarni boshqarish`;
 
   return ctx.reply(helpText, {
     parse_mode: 'HTML',
@@ -238,7 +319,7 @@ async function handleUndoLastExpense(ctx) {
   }
 
   return ctx.reply(
-    `🗑 <b>Oxirgi xarajat o'chirildi:</b>\n` +
+    `🗑 <b>Oxirgi yozuv o'chirildi:</b>\n` +
     `• <b>${lastExpense.description || lastExpense.category}</b>: ${lastExpense.amount.toLocaleString('uz-UZ')} so'm\n` +
     `📅 Sana: ${lastExpense.expense_date}`,
     { parse_mode: 'HTML' }

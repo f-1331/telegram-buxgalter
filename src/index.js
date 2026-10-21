@@ -3,6 +3,7 @@ const config = require('./config');
 const { handleVoiceMessage } = require('./handlers/voiceHandler');
 const { handleTextMessage } = require('./handlers/textHandler');
 const { handleCallbackQuery } = require('./handlers/actionHandler');
+const { handlePhotoMessage } = require('./handlers/photoHandler');
 
 console.log('====================================================');
 console.log('🤖 SHAXSIY AI BUXGALTER - TELEGRAM BOT ISHGA TUSHMOQDA');
@@ -41,6 +42,9 @@ bot.catch((err) => {
 bot.on('message:voice', handleVoiceMessage);
 bot.on('message:audio', handleVoiceMessage);
 bot.on('message:video_note', handleVoiceMessage);
+
+// Register Photo / Receipt scanner handler
+bot.on('message:photo', handlePhotoMessage);
 
 // Register Inline button callback queries
 bot.on('callback_query:data', handleCallbackQuery);

@@ -111,6 +111,7 @@ async function handleVoiceMessage(ctx) {
     const monthStr = getCurrentMonthString();
     const todayTotal = db.getTodayTotal(userId, todayStr);
     const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
+    const budget = db.getUserBudget(userId);
 
     const responseMsg = formatAddedExpensesMessage(
       result.transcription,
@@ -118,7 +119,8 @@ async function handleVoiceMessage(ctx) {
       todayTotal,
       balanceSummary.expense,
       balanceSummary.income,
-      balanceSummary.balance
+      balanceSummary.balance,
+      budget
     );
 
     return ctx.reply(responseMsg, {

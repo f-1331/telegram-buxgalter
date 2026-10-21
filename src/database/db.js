@@ -57,6 +57,32 @@ db.exec(`
   );
 
   CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id, status);
+
+  CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    target_amount REAL NOT NULL,
+    current_amount REAL DEFAULT 0,
+    status TEXT DEFAULT 'active', -- 'active' or 'reached'
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_goals_user ON goals(user_id, status);
+
+  CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    amount REAL NOT NULL,
+    category TEXT DEFAULT 'Kommunal va Aloqa',
+    day_of_month INTEGER DEFAULT 1,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_subs_user ON subscriptions(user_id);
 `);
 
 // Graceful schema migrations if tables already existed
@@ -489,6 +515,108 @@ function getUserFinancialSummary(userId, yearMonthStr) {
   };
 }
 
+/**
+ * -------------------------------------------------------------
+ * JAMG'ARMA MAQSADLARI (Financial Goals)
+ * -------------------------------------------------------------
+ */
+function addGoal({ userId, title, targetAmount, currentAmount = 0 }) {
+  const stmt = db.prepare(`
+    INSERT INTO goals (user_id, title, target_amount, current_amount, status)
+    VALUES (?, ?, ?, ?, 'active')
+  `);
+  const res = stmt.run(userId, title, targetAmount, currentAmount);
+  return {
+    id: res.lastInsertRowid,
+    userId,
+    title,
+    targetAmount,
+    currentAmount,
+    status: 'active'
+  };
+}
+
+function getUserGoals(userId) {
+  const stmt = db.prepare('SELECT * FROM goals WHERE user_id = ? ORDER BY id DESC');
+  return stmt.all(userId);
+}
+
+function addMoneyToGoal(goalId, userId, amount) {
+  const findStmt = db.prepare('SELECT * FROM goals WHERE id = ? AND user_id = ?');
+  const goal = findStmt.get(goalId, userId);
+  if (!goal) return null;
+
+  const newAmount = Number(goal.current_amount) + Number(amount);
+  const isReached = newAmount >= Number(goal.target_amount);
+  const newStatus = isReached ? 'reached' : 'active';
+
+  const updateStmt = db.prepare('UPDATE goals SET current_amount = ?, status = ? WHERE id = ? AND user_id = ?');
+  updateStmt.run(newAmount, newStatus, goalId, userId);
+
+  return {
+    ...goal,
+    current_amount: newAmount,
+    status: newStatus,
+    isReached
+  };
+}
+
+function completeGoal(goalId, userId) {
+  const stmt = db.prepare("UPDATE goals SET status = 'reached' WHERE id = ? AND user_id = ?");
+  const res = stmt.run(goalId, userId);
+  return res.changes > 0;
+}
+
+function deleteGoal(goalId, userId) {
+  const stmt = db.prepare('DELETE FROM goals WHERE id = ? AND user_id = ?');
+  const res = stmt.run(goalId, userId);
+  return res.changes > 0;
+}
+
+/**
+ * -------------------------------------------------------------
+ * DOIMIY TO'LOVLAR VA OBUNALAR (Recurring Subscriptions)
+ * -------------------------------------------------------------
+ */
+function addSubscription({ userId, title, amount, category = 'Kommunal va Aloqa', dayOfMonth = 1 }) {
+  const stmt = db.prepare(`
+    INSERT INTO subscriptions (user_id, title, amount, category, day_of_month)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const res = stmt.run(userId, title, amount, category, dayOfMonth);
+  return {
+    id: res.lastInsertRowid,
+    userId,
+    title,
+    amount,
+    category,
+    dayOfMonth
+  };
+}
+
+function getUserSubscriptions(userId) {
+  const stmt = db.prepare('SELECT * FROM subscriptions WHERE user_id = ? ORDER BY day_of_month ASC, id DESC');
+  return stmt.all(userId);
+}
+
+function deleteSubscription(subId, userId) {
+  const stmt = db.prepare('DELETE FROM subscriptions WHERE id = ? AND user_id = ?');
+  const res = stmt.run(subId, userId);
+  return res.changes > 0;
+}
+
+/**
+ * Reset all financial data for a user
+ */
+function resetUserData(userId) {
+  db.prepare('DELETE FROM expenses WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM debts WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM goals WHERE user_id = ?').run(userId);
+  db.prepare('DELETE FROM subscriptions WHERE user_id = ?').run(userId);
+  db.prepare('UPDATE users SET monthly_budget = 0 WHERE id = ?').run(userId);
+  return true;
+}
+
 module.exports = {
   db,
   saveUser,
@@ -517,5 +645,14 @@ module.exports = {
   getPendingDebts,
   settleDebt,
   deleteDebt,
-  getMonthIncomeCategoryBreakdown
+  getMonthIncomeCategoryBreakdown,
+  addGoal,
+  getUserGoals,
+  addMoneyToGoal,
+  completeGoal,
+  deleteGoal,
+  addSubscription,
+  getUserSubscriptions,
+  deleteSubscription,
+  resetUserData
 };

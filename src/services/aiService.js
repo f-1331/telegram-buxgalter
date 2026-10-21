@@ -531,9 +531,105 @@ Qisqa, do'stona, tushunarli va maslahatga boy qilib o'zbek tilida javob bering (
   return `🤖 <b>Shaxsiy AI Maslahatchi:</b>\n\nMoliyaviy erkinlikka erishish uchun daromadlaringizning kamida 10-20% qismini har oy boshida zaxira jamg'armasiga (depozitga) ajratib qo'yishni odat qiling! 💰`;
 }
 
+/**
+ * Analyze receipt, invoice or payment screenshot (Click, Payme, Uzum, etc.) with Gemini Vision
+ */
+async function processReceiptImage(imageBuffer, mimeType = 'image/jpeg') {
+  const apiKey = config.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'none' || apiKey.includes('GEMINI_API_KALITI')) {
+    throw new Error('GEMINI_API_KEY sozlanmagan.');
+  }
+
+  if (!genAI) {
+    genAI = new GoogleGenerativeAI(apiKey);
+  }
+
+  const todayStr = getTodayString();
+  const categoryNames = Object.keys(CATEGORIES).map(c => `"${c}"`).join(', ');
+
+  const prompt = `Siz shaxsiy buxgalter AI assistentisiz.
+Ushbu rasmda xarid cheki (kvitansiya), to'lov skrinshoti (Click, Payme, Uzum Bank, Anorbank, Paynet, terminal cheki) yoki moliyaviy ma'lumot aks etgan.
+Bugungi sana: ${todayStr}.
+
+Rasmdagi ma'lumotlarni aniqlang:
+1. Qaysi do'kon, xizmat yoki tashkilot (masalan: Korzinka, Makro, dorixona, Yandex Go, Click to'lov, kafe, zapravka va h.k.)
+2. To'langan yakuniy jami summa (so'mda, INTEGER raqamda).
+3. Sana (agar chekda yozilgan bo'lsa YYYY-MM-DD, aks holda ${todayStr}).
+4. Kategoriya quyidagilardan biri bo'lsin: [${categoryNames}]
+5. Turi: "expense" (chiqim/to'lov) yoki "income" (kirim/o'tkazma).
+6. Qisqa tavsif (description): nima sotib olingani yoki to'lov maqsadi.
+
+Javobni FAQAT quyidagi toza JSON formatida bering:
+{
+  "is_financial_receipt": true,
+  "shop_or_service": "Korzinka",
+  "amount": 145000,
+  "type": "expense",
+  "category": "Bozor va Supermarket",
+  "description": "Bozorlik",
+  "date": "${todayStr}"
+}
+
+Agar rasmda umuman chek, to'lov yoki pulga oid ma'lumot bo'lmasa (masalan tabiat, oddiy surat):
+{
+  "is_financial_receipt": false,
+  "message": "Ushbu rasmda chek yoki to'lov ma'lumoti aniqlanmadi."
+}`;
+
+  const base64Image = imageBuffer.toString('base64');
+  const modelsToTry = [
+    config.GEMINI_MODEL || 'gemini-3.5-flash',
+    'gemini-3.8-flash',
+    'gemini-3.1-flash-lite'
+  ];
+
+  let lastError = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await withTimeout(
+        model.generateContent([
+          {
+            inlineData: {
+              mimeType: mimeType || 'image/jpeg',
+              data: base64Image
+            }
+          },
+          { text: prompt }
+        ]),
+        16000,
+        `Model ${modelName} chek tahlilida timeout bo'ldi`
+      );
+
+      const responseText = result.response.text();
+      let cleaned = responseText.trim().replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      const startIdx = cleaned.indexOf('{');
+      const endIdx = cleaned.lastIndexOf('}');
+      if (startIdx !== -1 && endIdx !== -1) {
+        cleaned = cleaned.substring(startIdx, endIdx + 1);
+      }
+      const parsed = JSON.parse(cleaned);
+
+      if (parsed.is_financial_receipt && parsed.amount > 0) {
+        parsed.amount = Math.round(Number(parsed.amount));
+        parsed.category = normalizeCategory(parsed.category, parsed.type);
+        parsed.date = parsed.date || todayStr;
+        parsed.description = parsed.description || parsed.shop_or_service || parsed.category;
+      }
+      return parsed;
+    } catch (err) {
+      console.warn(`[AI Vision Warning] ${modelName} xatolik:`, err.message);
+      lastError = err;
+    }
+  }
+
+  throw new Error(`Chekni tahlil qilib bo'lmadi: ${lastError ? lastError.message : 'Noma\'lum xatolik'}`);
+}
+
 module.exports = {
   processVoiceAudio,
   processTextMessage,
+  processReceiptImage,
   getAIFinancialAdvice,
   calculateForecast,
   chatWithFinancialAI

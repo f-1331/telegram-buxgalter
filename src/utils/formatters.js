@@ -96,7 +96,7 @@ function normalizeCurrencyAmounts(text) {
 /**
  * Format a list of newly added records (expenses / income) into a clean Telegram message
  */
-function formatAddedExpensesMessage(transcription, items, todayTotal, monthExpense, monthIncome = 0, balance = null) {
+function formatAddedExpensesMessage(transcription, items, todayTotal, monthExpense, monthIncome = 0, balance = null, userBudget = 0) {
   const hasIncome = items.some(i => i.type === 'income');
   const hasExpense = items.some(i => !i.type || i.type === 'expense');
 
@@ -147,10 +147,19 @@ function formatAddedExpensesMessage(transcription, items, todayTotal, monthExpen
     const net = balance !== null ? balance : (monthIncome - monthExpense);
     const sign = net >= 0 ? '+' : '';
     message += `💵 <b>Oylik daromad:</b> ${formatCurrency(monthIncome)}\n`;
-    message += `🎯 <b>Oylik sof qoldiq:</b> <b>${sign}${formatCurrency(net)}</b>`;
+    message += `🎯 <b>Oylik sof qoldiq:</b> <b>${sign}${formatCurrency(net)}</b>\n`;
   }
 
-  return message;
+  if (userBudget > 0) {
+    if (monthExpense >= userBudget) {
+      message += `\n🚨 <b>OGOHLANTIRISH:</b> Oylik byudjetingiz (${formatCurrency(userBudget)}) dan oshib ketdingiz!`;
+    } else if (monthExpense >= userBudget * 0.8) {
+      const pct = Math.round((monthExpense / userBudget) * 100);
+      message += `\n⚠️ <b>DIQQAT:</b> Oylik byudjetingizning ${pct}% qismi ishlatildi!`;
+    }
+  }
+
+  return message.trim();
 }
 
 module.exports = {
