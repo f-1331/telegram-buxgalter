@@ -7,11 +7,13 @@ function getMainKeyboard() {
   return new Keyboard()
     .text('📊 Oylik hisobot').text('📈 Infografika')
     .row()
-    .text('📥 Excel yuklab olish').text('📅 Bugungi xarajatlar')
+    .text('📥 Excel hisobot').text('💰 Daromad & Qoldiq')
+    .row()
+    .text('🤝 Qarz daftari').text('📅 Bugungi hisob')
     .row()
     .text('💡 AI Maslahatchi').text('🔮 Kelajak prognozi')
     .row()
-    .text('🎯 Oylik byudjet').text('🗓 Oxirgi 7 kun')
+    .text('🎯 Oylik byudjet').text('🔍 Qidiruv')
     .row()
     .text('🗑 Oxirgisini o\'chirish').text('ℹ️ Qo\'llanma')
     .resized()
@@ -34,12 +36,21 @@ function getBudgetSelectionKeyboard() {
 }
 
 /**
- * Inline keyboard shown after saving an expense (with Undo button)
+ * Inline keyboard shown after saving an entry (with Undo button)
  */
 function getExpenseActionKeyboard(expenseIds) {
   const idsStr = Array.isArray(expenseIds) ? expenseIds.join(',') : expenseIds;
   return new InlineKeyboard()
     .text('🗑 Bekor qilish (O\'chirish)', `undo_${idsStr}`);
+}
+
+/**
+ * Inline keyboard for Qarz Daftari actions
+ */
+function getDebtActionKeyboard(debtId) {
+  return new InlineKeyboard()
+    .text('✅ Qarz uzildi (Yopish)', `settle_debt_${debtId}`)
+    .text('🗑 O\'chirish', `del_debt_${debtId}`);
 }
 
 /**
@@ -78,5 +89,6 @@ module.exports = {
   getMainKeyboard,
   getBudgetSelectionKeyboard,
   getExpenseActionKeyboard,
+  getDebtActionKeyboard,
   getMonthReportKeyboard
 };

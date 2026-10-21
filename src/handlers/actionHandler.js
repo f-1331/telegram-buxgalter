@@ -54,6 +54,34 @@ async function handleCallbackQuery(ctx) {
       return handleSetBudget(ctx, amount);
     }
 
+    // Settle debt button: 'settle_debt_12'
+    if (data.startsWith('settle_debt_')) {
+      const debtId = Number(data.replace('settle_debt_', ''));
+      const success = db.settleDebt(debtId, userId);
+      if (success) {
+        await ctx.answerCallbackQuery({ text: '✅ Qarz yopildi deb belgilandi!' });
+        return ctx.editMessageText('✅ <b>Ushbu qarz to\'liq uzildi va qarz daftarida yopildi!</b>', {
+          parse_mode: 'HTML'
+        });
+      } else {
+        await ctx.answerCallbackQuery({ text: 'Qarz yozuvi topilmadi.' });
+      }
+    }
+
+    // Delete debt button: 'del_debt_12'
+    if (data.startsWith('del_debt_')) {
+      const debtId = Number(data.replace('del_debt_', ''));
+      const success = db.deleteDebt(debtId, userId);
+      if (success) {
+        await ctx.answerCallbackQuery({ text: '🗑 Qarz o\'chirildi!' });
+        return ctx.editMessageText('🗑 <i>Ushbu qarz yozuvi bazadan o\'chirildi.</i>', {
+          parse_mode: 'HTML'
+        });
+      } else {
+        await ctx.answerCallbackQuery({ text: 'Qarz yozuvi topilmadi.' });
+      }
+    }
+
     await ctx.answerCallbackQuery();
   } catch (error) {
     console.error('[ActionHandler Error]:', error);

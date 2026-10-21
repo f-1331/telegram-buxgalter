@@ -22,6 +22,7 @@ db.exec(`
     username TEXT,
     first_name TEXT,
     monthly_budget REAL DEFAULT 0,
+    daily_reminder INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now', 'localtime'))
   );
 
@@ -34,13 +35,42 @@ db.exec(`
     expense_date TEXT NOT NULL, -- YYYY-MM-DD
     raw_input TEXT,
     input_type TEXT DEFAULT 'voice', -- 'voice' or 'text'
+    type TEXT DEFAULT 'expense', -- 'expense' or 'income'
     created_at TEXT DEFAULT (datetime('now', 'localtime')),
     FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS idx_expenses_user_date ON expenses(user_id, expense_date);
   CREATE INDEX IF NOT EXISTS idx_expenses_user_created ON expenses(user_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS debts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    person_name TEXT NOT NULL,
+    amount REAL NOT NULL,
+    type TEXT NOT NULL, -- 'lend' (men berdim) or 'borrow' (men oldim)
+    status TEXT DEFAULT 'pending', -- 'pending' or 'settled'
+    description TEXT,
+    created_at TEXT DEFAULT (datetime('now', 'localtime')),
+    settled_at TEXT,
+    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id, status);
 `);
+
+// Graceful schema migrations if tables already existed
+try {
+  db.exec("ALTER TABLE expenses ADD COLUMN type TEXT DEFAULT 'expense';");
+} catch (e) {}
+
+try {
+  db.exec("ALTER TABLE users ADD COLUMN daily_reminder INTEGER DEFAULT 1;");
+} catch (e) {}
+
+try {
+  db.exec("CREATE INDEX IF NOT EXISTS idx_expenses_type ON expenses(user_id, type);");
+} catch (e) {}
 
 /**
  * Save or update user info
@@ -57,14 +87,22 @@ function saveUser(id, username, firstName) {
 }
 
 /**
- * Add a single expense
+ * Get all users for reminders
  */
-function addExpense({ userId, amount, category, description, expenseDate, rawInput, inputType }) {
+function getAllUsers() {
+  const stmt = db.prepare('SELECT * FROM users WHERE daily_reminder = 1');
+  return stmt.all();
+}
+
+/**
+ * Add a single expense or income
+ */
+function addExpense({ userId, amount, category, description, expenseDate, rawInput, inputType, type = 'expense' }) {
   const stmt = db.prepare(`
-    INSERT INTO expenses (user_id, amount, category, description, expense_date, raw_input, input_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO expenses (user_id, amount, category, description, expense_date, raw_input, input_type, type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  const result = stmt.run(userId, amount, category, description, expenseDate, rawInput || '', inputType || 'voice');
+  const result = stmt.run(userId, amount, category, description, expenseDate, rawInput || '', inputType || 'voice', type || 'expense');
   return {
     id: result.lastInsertRowid,
     userId,
@@ -73,12 +111,13 @@ function addExpense({ userId, amount, category, description, expenseDate, rawInp
     description,
     expenseDate,
     rawInput,
-    inputType
+    inputType,
+    type
   };
 }
 
 /**
- * Add multiple expenses in batch
+ * Add multiple entries in batch
  */
 function addExpensesBatch(userId, expenses, rawInput, inputType) {
   const inserted = [];
@@ -90,7 +129,8 @@ function addExpensesBatch(userId, expenses, rawInput, inputType) {
       description: item.description,
       expenseDate: item.date,
       rawInput,
-      inputType
+      inputType,
+      type: item.type || 'expense'
     });
     inserted.push(res);
   }
@@ -118,7 +158,7 @@ function deleteExpenses(ids, userId) {
 }
 
 /**
- * Delete the most recent expense for a user and return its info
+ * Delete the most recent record for a user and return its info
  */
 function deleteLastExpense(userId) {
   const findStmt = db.prepare(`
@@ -141,7 +181,7 @@ function getTodayTotal(userId, dateStr) {
   const stmt = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS total 
     FROM expenses 
-    WHERE user_id = ? AND expense_date = ?
+    WHERE user_id = ? AND expense_date = ? AND (type IS NULL OR type = 'expense')
   `);
   const res = stmt.get(userId, dateStr);
   return res ? Number(res.total) : 0;
@@ -154,10 +194,40 @@ function getMonthTotal(userId, yearMonthStr) {
   const stmt = db.prepare(`
     SELECT COALESCE(SUM(amount), 0) AS total 
     FROM expenses 
-    WHERE user_id = ? AND expense_date LIKE ?
+    WHERE user_id = ? AND expense_date LIKE ? AND (type IS NULL OR type = 'expense')
   `);
   const res = stmt.get(userId, `${yearMonthStr}%`);
   return res ? Number(res.total) : 0;
+}
+
+/**
+ * Get total income received in a specific month (YYYY-MM)
+ */
+function getMonthIncomeTotal(userId, yearMonthStr) {
+  const stmt = db.prepare(`
+    SELECT COALESCE(SUM(amount), 0) AS total 
+    FROM expenses 
+    WHERE user_id = ? AND expense_date LIKE ? AND type = 'income'
+  `);
+  const res = stmt.get(userId, `${yearMonthStr}%`);
+  return res ? Number(res.total) : 0;
+}
+
+/**
+ * Get complete balance summary for a month
+ */
+function getMonthBalanceSummary(userId, yearMonthStr) {
+  const income = getMonthIncomeTotal(userId, yearMonthStr);
+  const expense = getMonthTotal(userId, yearMonthStr);
+  const balance = income - expense;
+  const savingsRate = income > 0 ? ((balance / income) * 100).toFixed(1) : 0;
+
+  return {
+    income,
+    expense,
+    balance,
+    savingsRate
+  };
 }
 
 /**
@@ -173,7 +243,7 @@ function getTodayExpenses(userId, dateStr) {
 }
 
 /**
- * Get all expenses for a given month
+ * Get all records for a given month
  */
 function getMonthExpenses(userId, yearMonthStr) {
   const stmt = db.prepare(`
@@ -185,7 +255,7 @@ function getMonthExpenses(userId, yearMonthStr) {
 }
 
 /**
- * Get category breakdown for a month
+ * Get category breakdown for a month (expenses only)
  */
 function getMonthCategoryBreakdown(userId, yearMonthStr) {
   const stmt = db.prepare(`
@@ -195,7 +265,7 @@ function getMonthCategoryBreakdown(userId, yearMonthStr) {
       COUNT(id) AS count,
       ROUND(AVG(amount)) AS avg_amount
     FROM expenses 
-    WHERE user_id = ? AND expense_date LIKE ? 
+    WHERE user_id = ? AND expense_date LIKE ? AND (type IS NULL OR type = 'expense')
     GROUP BY category 
     ORDER BY total_amount DESC
   `);
@@ -221,7 +291,7 @@ function getMonthDailyBreakdown(userId, yearMonthStr) {
       SUM(amount) AS total_amount,
       COUNT(id) AS count
     FROM expenses 
-    WHERE user_id = ? AND expense_date LIKE ? 
+    WHERE user_id = ? AND expense_date LIKE ? AND (type IS NULL OR type = 'expense')
     GROUP BY expense_date 
     ORDER BY expense_date ASC
   `);
@@ -254,6 +324,20 @@ function getRecentExpenses(userId, limit = 10) {
 }
 
 /**
+ * Search expenses by keyword in description or category
+ */
+function searchExpenses(userId, query, limit = 20) {
+  const stmt = db.prepare(`
+    SELECT * FROM expenses 
+    WHERE user_id = ? AND (description LIKE ? OR category LIKE ? OR raw_input LIKE ?)
+    ORDER BY expense_date DESC, id DESC
+    LIMIT ?
+  `);
+  const pattern = `%${query}%`;
+  return stmt.all(userId, pattern, pattern, pattern, limit);
+}
+
+/**
  * Set user's monthly budget
  */
 function setUserBudget(userId, amount) {
@@ -271,29 +355,145 @@ function getUserBudget(userId) {
 }
 
 /**
+ * Toggle user daily reminder
+ */
+function toggleReminder(userId, enable = true) {
+  const stmt = db.prepare('UPDATE users SET daily_reminder = ? WHERE id = ?');
+  return stmt.run(enable ? 1 : 0, userId);
+}
+
+/**
+ * -------------------------------------------------------------
+ * QARZ DAFTARI (Debts & Loans Management)
+ * -------------------------------------------------------------
+ */
+
+/**
+ * Add a debt record (lend: berdim, borrow: oldim)
+ */
+function addDebt({ userId, personName, amount, type, description }) {
+  const stmt = db.prepare(`
+    INSERT INTO debts (user_id, person_name, amount, type, description, status)
+    VALUES (?, ?, ?, ?, ?, 'pending')
+  `);
+  const res = stmt.run(userId, personName, amount, type, description || '');
+  return {
+    id: res.lastInsertRowid,
+    userId,
+    personName,
+    amount,
+    type,
+    description
+  };
+}
+
+/**
+ * Get all pending debts for user
+ */
+function getPendingDebts(userId) {
+  const stmt = db.prepare(`
+    SELECT * FROM debts 
+    WHERE user_id = ? AND status = 'pending' 
+    ORDER BY id DESC
+  `);
+  const all = stmt.all(userId);
+  const lend = all.filter(d => d.type === 'lend');
+  const borrow = all.filter(d => d.type === 'borrow');
+  const totalLend = lend.reduce((s, d) => s + Number(d.amount), 0);
+  const totalBorrow = borrow.reduce((s, d) => s + Number(d.amount), 0);
+
+  return {
+    lend,
+    borrow,
+    totalLend,
+    totalBorrow,
+    count: all.length
+  };
+}
+
+/**
+ * Settle (close) a debt
+ */
+function settleDebt(debtId, userId) {
+  const stmt = db.prepare(`
+    UPDATE debts 
+    SET status = 'settled', settled_at = datetime('now', 'localtime') 
+    WHERE id = ? AND user_id = ?
+  `);
+  const res = stmt.run(debtId, userId);
+  return res.changes > 0;
+}
+
+/**
+ * Delete a debt record
+ */
+function deleteDebt(debtId, userId) {
+  const stmt = db.prepare(`
+    DELETE FROM debts 
+    WHERE id = ? AND user_id = ?
+  `);
+  const res = stmt.run(debtId, userId);
+  return res.changes > 0;
+}
+
+/**
+ * Get category breakdown for incomes in a month
+ */
+function getMonthIncomeCategoryBreakdown(userId, yearMonthStr) {
+  const stmt = db.prepare(`
+    SELECT 
+      category, 
+      SUM(amount) AS total_amount, 
+      COUNT(id) AS count,
+      ROUND(AVG(amount)) AS avg_amount
+    FROM expenses 
+    WHERE user_id = ? AND expense_date LIKE ? AND type = 'income'
+    GROUP BY category 
+    ORDER BY total_amount DESC
+  `);
+  const rows = stmt.all(userId, `${yearMonthStr}%`);
+  const monthTotal = rows.reduce((sum, r) => sum + Number(r.total_amount), 0);
+
+  return rows.map(r => ({
+    category: r.category,
+    total_amount: Number(r.total_amount),
+    count: Number(r.count),
+    avg_amount: Number(r.avg_amount),
+    percentage: monthTotal > 0 ? ((Number(r.total_amount) / monthTotal) * 100).toFixed(1) : '0.0'
+  }));
+}
+
+/**
  * Get detailed user spending summary for AI analysis
  */
 function getUserFinancialSummary(userId, yearMonthStr) {
   const budget = getUserBudget(userId);
   const totalMonth = getMonthTotal(userId, yearMonthStr);
+  const incomeTotal = getMonthIncomeTotal(userId, yearMonthStr);
   const categories = getMonthCategoryBreakdown(userId, yearMonthStr);
   const recentExpenses = getRecentExpenses(userId, 15);
   const dailyTrend = getMonthDailyBreakdown(userId, yearMonthStr);
+  const debts = getPendingDebts(userId);
 
   return {
     userId,
     yearMonthStr,
     budget,
     totalMonth,
+    incomeTotal,
+    balance: incomeTotal - totalMonth,
     categories,
     recentExpenses,
-    dailyTrend
+    dailyTrend,
+    debts
   };
 }
 
 module.exports = {
   db,
   saveUser,
+  getAllUsers,
+  toggleReminder,
   addExpense,
   addExpensesBatch,
   deleteExpense,
@@ -301,13 +501,21 @@ module.exports = {
   deleteLastExpense,
   getTodayTotal,
   getMonthTotal,
+  getMonthIncomeTotal,
+  getMonthBalanceSummary,
   getTodayExpenses,
   getMonthExpenses,
   getMonthCategoryBreakdown,
   getMonthDailyBreakdown,
   getLastNDaysExpenses,
   getRecentExpenses,
+  searchExpenses,
   setUserBudget,
   getUserBudget,
-  getUserFinancialSummary
+  getUserFinancialSummary,
+  addDebt,
+  getPendingDebts,
+  settleDebt,
+  deleteDebt,
+  getMonthIncomeCategoryBreakdown
 };

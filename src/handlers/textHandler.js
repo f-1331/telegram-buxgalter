@@ -1,10 +1,19 @@
-const { processTextMessage } = require('../services/aiService');
+const { processTextMessage, chatWithFinancialAI } = require('../services/aiService');
 const db = require('../database/db');
-const { getTodayString, getCurrentMonthString, formatAddedExpensesMessage } = require('../utils/formatters');
-const { getMainKeyboard, getExpenseActionKeyboard } = require('../utils/keyboards');
-const { handleMonthlyReport, handleInfographic, handleExcelExport, handleTodayExpenses, handleLast7DaysExpenses, handleRecentExpenses } = require('./reportHandler');
+const { getTodayString, getCurrentMonthString, formatAddedExpensesMessage, formatCurrency } = require('../utils/formatters');
+const { getMainKeyboard, getExpenseActionKeyboard, getDebtActionKeyboard } = require('../utils/keyboards');
+const {
+  handleMonthlyReport,
+  handleInfographic,
+  handleExcelExport,
+  handleTodayExpenses,
+  handleLast7DaysExpenses,
+  handleRecentExpenses,
+  handleIncomeAndBalance,
+  handleDebtBook,
+  handleSearchExpenses
+} = require('./reportHandler');
 const { handleAIAdvisor, handleForecast, handleBudgetMenu, handleSetBudget } = require('./aiHandler');
-const { chatWithFinancialAI } = require('../services/aiService');
 
 /**
  * Handle incoming text messages
@@ -38,6 +47,12 @@ async function handleTextMessage(ctx) {
     return handleBudgetMenu(ctx);
   }
 
+  // Search commands: e.g. "/search taksi" or "/qidiruv bozorlik"
+  if (text.startsWith('/search') || text.startsWith('/qidiruv')) {
+    const query = text.replace(/^\/(search|qidiruv)/i, '').trim();
+    return handleSearchExpenses(ctx, query);
+  }
+
   // Check menu buttons
   if (text === '📊 Oylik hisobot') {
     return handleMonthlyReport(ctx);
@@ -45,10 +60,16 @@ async function handleTextMessage(ctx) {
   if (text === '📈 Infografika') {
     return handleInfographic(ctx);
   }
-  if (text === '📥 Excel yuklab olish') {
+  if (text === '📥 Excel hisobot' || text === '📥 Excel yuklab olish') {
     return handleExcelExport(ctx);
   }
-  if (text === '📅 Bugungi xarajatlar') {
+  if (text === '💰 Daromad & Qoldiq' || text === '/balance') {
+    return handleIncomeAndBalance(ctx);
+  }
+  if (text === '🤝 Qarz daftari' || text === '/debts') {
+    return handleDebtBook(ctx);
+  }
+  if (text === '📅 Bugungi hisob' || text === '📅 Bugungi xarajatlar') {
     return handleTodayExpenses(ctx);
   }
   if (text === '🗓 Oxirgi 7 kun') {
@@ -56,6 +77,9 @@ async function handleTextMessage(ctx) {
   }
   if (text === '📋 So\'nggi xarajatlar') {
     return handleRecentExpenses(ctx);
+  }
+  if (text === '🔍 Qidiruv') {
+    return handleSearchExpenses(ctx, '');
   }
   if (text === '🗑 Oxirgisini o\'chirish') {
     return handleUndoLastExpense(ctx);
@@ -72,14 +96,65 @@ async function handleTextMessage(ctx) {
     return handleBudgetMenu(ctx);
   }
 
-  // Otherwise, user is writing an expense or asking AI a question!
+  // Otherwise, user is writing an expense/income/debt or asking AI a question!
   await ctx.replyWithChatAction('typing');
 
   try {
     const result = await processTextMessage(text);
 
-    if (!result.has_expenses || !result.expenses || result.expenses.length === 0) {
-      // If user is asking a question or talking, let AI answer!
+    // 1. Check if debts were detected
+    if (result.debts && result.debts.length > 0) {
+      for (const d of result.debts) {
+        const debt = db.addDebt({
+          userId,
+          personName: d.personName,
+          amount: d.amount,
+          type: d.type,
+          description: d.description
+        });
+
+        const actionText = d.type === 'lend'
+          ? `🔴 <b>${d.personName}</b>ga ${formatCurrency(d.amount)} qarz berildi!`
+          : `🟢 <b>${d.personName}</b>dan ${formatCurrency(d.amount)} qarz olindi!`;
+
+        await ctx.reply(
+          `🤝 <b>Qarz daftari yangilandi:</b>\n\n${actionText}\n\n` +
+          `Qarz uzilganda, pastdagi tugma orqali yopishingiz mumkin.`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: getDebtActionKeyboard(debt.id)
+          }
+        );
+      }
+    }
+
+    // 2. Check if expenses or incomes were detected
+    if (result.expenses && result.expenses.length > 0) {
+      const inserted = db.addExpensesBatch(userId, result.expenses, text, 'text');
+      const insertedIds = inserted.map(i => i.id);
+
+      const todayStr = getTodayString();
+      const monthStr = getCurrentMonthString();
+      const todayTotal = db.getTodayTotal(userId, todayStr);
+      const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
+
+      const responseMsg = formatAddedExpensesMessage(
+        null, // No transcription needed for text
+        result.expenses,
+        todayTotal,
+        balanceSummary.expense,
+        balanceSummary.income,
+        balanceSummary.balance
+      );
+
+      return ctx.reply(responseMsg, {
+        parse_mode: 'HTML',
+        reply_markup: getExpenseActionKeyboard(insertedIds)
+      });
+    }
+
+    // 3. If neither debts nor expenses found
+    if (!result.debts || result.debts.length === 0) {
       const monthStr = getCurrentMonthString();
       const userSummary = db.getUserFinancialSummary(userId, monthStr);
       const aiResponse = await chatWithFinancialAI(text, userSummary, firstName);
@@ -88,28 +163,6 @@ async function handleTextMessage(ctx) {
         reply_markup: getMainKeyboard()
       });
     }
-
-    // Save batch expenses to database
-    const inserted = db.addExpensesBatch(userId, result.expenses, text, 'text');
-    const insertedIds = inserted.map(i => i.id);
-
-    // Get today and month totals
-    const todayStr = getTodayString();
-    const monthStr = getCurrentMonthString();
-    const todayTotal = db.getTodayTotal(userId, todayStr);
-    const monthTotal = db.getMonthTotal(userId, monthStr);
-
-    const responseMsg = formatAddedExpensesMessage(
-      null, // No voice transcription needed for text
-      result.expenses,
-      todayTotal,
-      monthTotal
-    );
-
-    return ctx.reply(responseMsg, {
-      parse_mode: 'HTML',
-      reply_markup: getExpenseActionKeyboard(insertedIds)
-    });
   } catch (error) {
     console.error('[TextHandler Error]:', error);
     return ctx.reply(

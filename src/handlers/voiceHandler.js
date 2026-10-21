@@ -1,11 +1,11 @@
 const { processVoiceAudio } = require('../services/aiService');
 const db = require('../database/db');
-const { getTodayString, getCurrentMonthString, formatAddedExpensesMessage } = require('../utils/formatters');
-const { getExpenseActionKeyboard } = require('../utils/keyboards');
+const { getTodayString, getCurrentMonthString, formatAddedExpensesMessage, formatCurrency } = require('../utils/formatters');
+const { getExpenseActionKeyboard, getDebtActionKeyboard } = require('../utils/keyboards');
 const config = require('../config');
 
 /**
- * Handle incoming voice messages from Telegram
+ * Handle incoming voice, audio, and round video messages from Telegram
  */
 async function handleVoiceMessage(ctx) {
   const userId = ctx.from.id;
@@ -19,24 +19,28 @@ async function handleVoiceMessage(ctx) {
   await ctx.replyWithChatAction('record_voice');
 
   try {
-    const voice = ctx.message.voice || ctx.message.audio;
-    if (!voice) {
-      return ctx.reply('⚠️ Ovozli xabar topilmadi.');
+    const media = ctx.message.voice || ctx.message.audio || ctx.message.video_note;
+    if (!media) {
+      return ctx.reply('⚠️ Ovozli yoki video xabar topilmadi.');
     }
 
     // Check GEMINI_API_KEY
-    if (!config.GEMINI_API_KEY) {
+    if (!config.GEMINI_API_KEY || config.GEMINI_API_KEY === 'none') {
       return ctx.reply(
         '⚠️ <b>Gemini API kaliti ulanmagan!</b>\n\n' +
         'Ovozli xabarlarni tushunish uchun <code>GEMINI_API_KEY</code> kerak.\n' +
-        'Iltimos, bot o\'rnatilgan papkadagi <code>.env</code> fayliga kalitingizni kiriting.\n\n' +
-        '👉 Kalitni mutlaqo bepul olish: https://aistudio.google.com/app/apikey',
+        'Iltimos, kalitni kiriting.\n\n' +
+        '👉 Bepul olish: https://aistudio.google.com/app/apikey',
         { parse_mode: 'HTML' }
       );
     }
 
-    // Show initial processing message
-    const statusMsg = await ctx.reply('🎧 <i>Ovozingiz eshitilmoqda va tahlil qilinmoqda...</i>', { parse_mode: 'HTML' });
+    const isVideoNote = Boolean(ctx.message.video_note);
+    const initialText = isVideoNote 
+      ? '📹 <i>Dumaloq video xabaringiz eshitilmoqda va tahlil qilinmoqda...</i>'
+      : '🎧 <i>Ovozingiz eshitilmoqda va tahlil qilinmoqda...</i>';
+
+    const statusMsg = await ctx.reply(initialText, { parse_mode: 'HTML' });
 
     // Download file from Telegram
     const file = await ctx.getFile();
@@ -50,41 +54,73 @@ async function handleVoiceMessage(ctx) {
     const arrayBuffer = await res.arrayBuffer();
     const audioBuffer = Buffer.from(arrayBuffer);
 
-    // Process with Gemini AI
-    const result = await processVoiceAudio(audioBuffer, voice.mime_type || 'audio/ogg');
+    const mimeType = isVideoNote ? 'video/mp4' : (media.mime_type || 'audio/ogg');
 
-    // Delete or edit processing status message
+    // Process with Gemini AI
+    const result = await processVoiceAudio(audioBuffer, mimeType);
+
+    // Delete processing status message
     await ctx.api.deleteMessage(ctx.chat.id, statusMsg.message_id).catch(() => {});
 
+    // Check if debt was detected
+    if (result.debts && result.debts.length > 0) {
+      for (const d of result.debts) {
+        const debt = db.addDebt({
+          userId,
+          personName: d.personName,
+          amount: d.amount,
+          type: d.type,
+          description: d.description
+        });
+
+        const actionText = d.type === 'lend' 
+          ? `🔴 <b>${d.personName}</b>ga ${formatCurrency(d.amount)} qarz berildi!`
+          : `🟢 <b>${d.personName}</b>dan ${formatCurrency(d.amount)} qarz olindi!`;
+
+        await ctx.reply(
+          `🤝 <b>Qarz daftari yangilandi:</b>\n\n${actionText}\n\n` +
+          `Qarz uzilganda, pastdagi tugma orqali yopishingiz mumkin.`,
+          {
+            parse_mode: 'HTML',
+            reply_markup: getDebtActionKeyboard(debt.id)
+          }
+        );
+      }
+    }
+
     if (!result.has_expenses || !result.expenses || result.expenses.length === 0) {
-      let replyText = '🤔 <b>Ovozli xabarda xarajat ma\'lumotlari aniqlanmadi.</b>\n\n';
+      if (result.debts && result.debts.length > 0) {
+        return; // Already replied about debt
+      }
+
+      let replyText = '🤔 <b>Ovozli xabarda xarajat yoki daromad aniqlanmadi.</b>\n\n';
       if (result.transcription) {
         replyText += `🎙 <i>Eshitildi: "${result.transcription}"</i>\n\n`;
       }
-      replyText += '💡 <b>Maslahat:</b> Xarajat kiritish uchun masalan:\n<i>"Bugun taksiga 25 ming, tushlikka 60 ming ishlatdim"</i> deb ayting.';
+      replyText += '💡 <b>Maslahat:</b> Masalan:\n• <i>"Bugun taksiga 25 ming, tushlikka 60 ming ishlatdim"</i>\n• <i>"Oyligim 5 million tushdi"</i>';
       return ctx.reply(replyText, { parse_mode: 'HTML' });
     }
 
-    // Save expenses to database
-    const rawText = result.transcription || 'Ovozli xabar';
-    const inserted = db.addExpensesBatch(userId, result.expenses, rawText, 'voice');
+    // Save batch expenses to database
+    const rawText = result.transcription || (isVideoNote ? 'Video xabar' : 'Ovozli xabar');
+    const inserted = db.addExpensesBatch(userId, result.expenses, rawText, isVideoNote ? 'video' : 'voice');
     const insertedIds = inserted.map(i => i.id);
 
-    // Get today's total and month total
+    // Get updated monthly balance
     const todayStr = getTodayString();
     const monthStr = getCurrentMonthString();
     const todayTotal = db.getTodayTotal(userId, todayStr);
-    const monthTotal = db.getMonthTotal(userId, monthStr);
+    const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
 
-    // Format response message
     const responseMsg = formatAddedExpensesMessage(
       result.transcription,
       result.expenses,
       todayTotal,
-      monthTotal
+      balanceSummary.expense,
+      balanceSummary.income,
+      balanceSummary.balance
     );
 
-    // Send confirmation with Undo button
     return ctx.reply(responseMsg, {
       parse_mode: 'HTML',
       reply_markup: getExpenseActionKeyboard(insertedIds)
@@ -92,7 +128,7 @@ async function handleVoiceMessage(ctx) {
   } catch (error) {
     console.error('[VoiceHandler Error]:', error);
     return ctx.reply(
-      `❌ <b>Ovozni qayta ishlashda xatolik yuz berdi:</b>\n<code>${error.message}</code>\n\n` +
+      `❌ <b>Ovozni qayta ishlashda xatolik:</b>\n<code>${error.message}</code>\n\n` +
       `Iltimos, qaytadan urinib ko'ring yoki xarajatni matn ko'rinishida yozing.`,
       { parse_mode: 'HTML' }
     );

@@ -1,4 +1,4 @@
-const { InputFile } = require('grammy');
+const { InputFile, InlineKeyboard } = require('grammy');
 const fs = require('node:fs');
 const db = require('../database/db');
 const { generateMonthlyInfographic, generateDailyTrendChart } = require('../services/chartService');
@@ -126,10 +126,12 @@ async function handleExcelExport(ctx, targetYearMonth = null) {
 
   const expenses = db.getMonthExpenses(userId, yearMonthStr);
   const categoryStats = db.getMonthCategoryBreakdown(userId, yearMonthStr);
+  const incomeCategoryStats = db.getMonthIncomeCategoryBreakdown(userId, yearMonthStr);
+  const balanceSummary = db.getMonthBalanceSummary(userId, yearMonthStr);
 
   if (!expenses || expenses.length === 0) {
     return ctx.reply(
-      `⚠️ <b>${monthTitle}</b> oyi uchun Excel hisobot tuzishga xarajatlar topilmadi.`,
+      `⚠️ <b>${monthTitle}</b> oyi uchun Excel hisobot tuzishga yozuvlar topilmadi.`,
       { parse_mode: 'HTML' }
     );
   }
@@ -138,17 +140,19 @@ async function handleExcelExport(ctx, targetYearMonth = null) {
   const waitMsg = await ctx.reply('📑 <i>Excel jadval shakllantirilmoqda...</i>', { parse_mode: 'HTML' });
 
   try {
-    const filePath = await generateMonthlyExcel(expenses, categoryStats, yearMonthStr, userName);
-    const totalAmount = db.getMonthTotal(userId, yearMonthStr);
+    const filePath = await generateMonthlyExcel(expenses, categoryStats, yearMonthStr, userName, incomeCategoryStats);
 
     await ctx.api.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
 
+    const sign = balanceSummary.balance >= 0 ? '+' : '';
     const caption =
       `📥 <b>${monthTitle.toUpperCase()} OYI EXCEL HISOBOTI</b>\n\n` +
       `📁 <b>Fayl:</b> <code>Hisobot_${yearMonthStr}.xlsx</code>\n` +
-      `💰 <b>Jami:</b> ${formatCurrency(totalAmount)}\n` +
-      `📝 <b>Jami qatorlar:</b> ${expenses.length} ta\n\n` +
-      `<i>Jadvalda xarajatlar tarixi va kategoriyalar tahlili alohida sahifalarda jamlangan.</i>`;
+      `💵 <b>Kirim (Daromad):</b> +${formatCurrency(balanceSummary.income)}\n` +
+      `💸 <b>Chiqim (Xarajat):</b> -${formatCurrency(balanceSummary.expense)}\n` +
+      `🎯 <b>Sof qoldiq (Balans):</b> <b>${sign}${formatCurrency(balanceSummary.balance)}</b>\n` +
+      `📝 <b>Jami yozuvlar:</b> ${expenses.length} ta\n\n` +
+      `<i>Jadvalda xarajatlar/daromadlar tarixi va kategoriyalar tahlili alohida sahifalarda chiroyli jamlangan.</i>`;
 
     await ctx.replyWithDocument(new InputFile(filePath, `Hisobot_${yearMonthStr}.xlsx`), {
       caption: caption,
@@ -254,11 +258,159 @@ async function handleRecentExpenses(ctx) {
   return ctx.reply(text, { parse_mode: 'HTML' });
 }
 
+/**
+ * Handle Income and Net Balance display
+ */
+async function handleIncomeAndBalance(ctx) {
+  const userId = ctx.from.id;
+  const monthStr = getCurrentMonthString();
+  const monthTitle = formatYearMonthUz(monthStr);
+
+  const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
+  const incomeCats = db.getMonthIncomeCategoryBreakdown(userId, monthStr);
+
+  let text = `💰 <b>${monthTitle.toUpperCase()} — DAROMAD VA QOLDIQ</b>\n\n`;
+  text += `💵 <b>Jami daromad (Kirim):</b> +${formatCurrency(balanceSummary.income)}\n`;
+  text += `💸 <b>Jami xarajat (Chiqim):</b> -${formatCurrency(balanceSummary.expense)}\n`;
+  
+  const sign = balanceSummary.balance >= 0 ? '+' : '';
+  const balanceEmoji = balanceSummary.balance >= 0 ? '🟢' : '🔴';
+  text += `${balanceEmoji} <b>Sof qoldiq (Balans):</b> <b>${sign}${formatCurrency(balanceSummary.balance)}</b>\n`;
+  
+  if (balanceSummary.income > 0) {
+    text += `📊 <b>Jamg'arma darajasi:</b> ${balanceSummary.savingsRate}%\n\n`;
+  } else {
+    text += `\n`;
+  }
+
+  if (incomeCats && incomeCats.length > 0) {
+    text += `📂 <b>Daromad manbalari bo'yicha:</b>\n`;
+    incomeCats.forEach((c, i) => {
+      const emoji = getCategoryEmoji(c.category);
+      text += `${i + 1}. ${emoji} <b>${c.category}:</b> +${formatCurrency(c.total_amount)} (<i>${c.percentage}%</i>)\n`;
+    });
+    text += `\n`;
+  }
+
+  if (balanceSummary.income === 0 && balanceSummary.expense === 0) {
+    text += `<i>Ushbu oyda hali hech qanday kirim yoki chiqim kiritilmagan.</i>\n\n`;
+  }
+
+  text += `💡 <b>Maslahat:</b> Daromad kiritish uchun ovozli yoki matnli xabar yuboring:\n• <i>"Oyligim 6 million tushdi"</i>\n• <i>"Keshbekdan 45 ming oldim"</i>`;
+
+  return ctx.reply(text, { parse_mode: 'HTML' });
+}
+
+/**
+ * Handle Qarz daftari (Debts ledger) display
+ */
+async function handleDebtBook(ctx) {
+  const userId = ctx.from.id;
+  const debts = db.getPendingDebts(userId);
+
+  let text = `🤝 <b>QARZ DAFTARI (Ochiq qarzlar)</b>\n\n`;
+
+  // 1. Menga berilishi kerak (Lend)
+  text += `🔴 <b>Menga berilishi kerak (Qarz berganman):</b>\n`;
+  if (debts.lend.length === 0) {
+    text += `<i>Hozircha hech kimdan qarz kutilmayapti.</i>\n\n`;
+  } else {
+    debts.lend.forEach((d, idx) => {
+      text += `${idx + 1}. 👤 <b>${d.person_name}</b>: ${formatCurrency(d.amount)}\n`;
+      if (d.description) text += `   📝 <i>${d.description}</i>\n`;
+      text += `   📅 ${d.created_at ? d.created_at.substring(0, 10) : ''}\n`;
+    });
+    text += `👉 <b>Jami kutilayotgan:</b> ${formatCurrency(debts.totalLend)}\n\n`;
+  }
+
+  // 2. Men berishim kerak (Borrow)
+  text += `🟢 <b>Men berishim kerak (Qarz olganman):</b>\n`;
+  if (debts.borrow.length === 0) {
+    text += `<i>Sizda to'lanishi kerak bo'lgan qarzlar yo'q.</i>\n\n`;
+  } else {
+    debts.borrow.forEach((d, idx) => {
+      text += `${idx + 1}. 👤 <b>${d.person_name}</b>: ${formatCurrency(d.amount)}\n`;
+      if (d.description) text += `   📝 <i>${d.description}</i>\n`;
+      text += `   📅 ${d.created_at ? d.created_at.substring(0, 10) : ''}\n`;
+    });
+    text += `👉 <b>Jami to'lanishi kerak:</b> ${formatCurrency(debts.totalBorrow)}\n\n`;
+  }
+
+  // Balance
+  const netDebt = debts.totalLend - debts.totalBorrow;
+  const netSign = netDebt >= 0 ? '+' : '';
+  text += `⚖️ <b>Sof qarz balansi:</b> <b>${netSign}${formatCurrency(netDebt)}</b>\n\n`;
+  text += `💡 <i>Yangi qarz qo'shish uchun shunchaki ayting yoki yozing:</i>\n`;
+  text += `• <i>"Akromga 200 ming qarz berdim"</i>\n`;
+  text += `• <i>"Sobirdan 150 ming qarz oldim"</i>`;
+
+  // Build inline keyboard for pending debts if any
+  const keyboard = new InlineKeyboard();
+  const allPending = [...debts.lend, ...debts.borrow];
+  if (allPending.length > 0) {
+    allPending.slice(0, 6).forEach(d => {
+      keyboard.text(`✅ ${d.person_name} (${formatCurrency(d.amount)}) uzildi`, `settle_debt_${d.id}`).row();
+    });
+    return ctx.reply(text, { parse_mode: 'HTML', reply_markup: keyboard });
+  }
+
+  return ctx.reply(text, { parse_mode: 'HTML' });
+}
+
+/**
+ * Handle expense search
+ */
+async function handleSearchExpenses(ctx, query = '') {
+  const userId = ctx.from.id;
+  const cleanQuery = (query || '').trim();
+
+  if (!cleanQuery) {
+    return ctx.reply(
+      `🔍 <b>Xarajat yoki daromadlarni qidirish:</b>\n\n` +
+      `Qidirish uchun quyidagicha xabar yuboring:\n` +
+      `• <code>/search taksi</code>\n` +
+      `• <code>/search bozorlik</code>\n` +
+      `• <code>/search oylik</code>\n` +
+      `• <code>/search korzinka</code>\n\n` +
+      `AI barcha yozuvlar orasidan tezda topib beradi!`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  const results = db.searchExpenses(userId, cleanQuery, 20);
+
+  if (results.length === 0) {
+    return ctx.reply(
+      `🔍 "<b>${cleanQuery}</b>" so'zi bo'yicha hech qanday xarajat yoki daromad topilmadi.`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  let text = `🔍 "<b>${cleanQuery}</b>" bo'yicha topilgan yozuvlar (${results.length} ta):\n\n`;
+  let totalFound = 0;
+
+  results.forEach((item, idx) => {
+    const isIncome = item.type === 'income';
+    const emoji = getCategoryEmoji(item.category);
+    const sign = isIncome ? '+' : '-';
+    totalFound += Number(item.amount);
+
+    text += `${idx + 1}. ${emoji} <b>${item.description || item.category}</b>: ${sign}${formatCurrency(item.amount)}\n`;
+    text += `   📅 ${formatDateUz(item.expense_date)} | <i>${item.category}</i>\n`;
+  });
+
+  text += `\n💰 <b>Topilganlar umumiy summasi:</b> ${formatCurrency(totalFound)}`;
+  return ctx.reply(text, { parse_mode: 'HTML' });
+}
+
 module.exports = {
   handleMonthlyReport,
   handleInfographic,
   handleExcelExport,
   handleTodayExpenses,
   handleLast7DaysExpenses,
-  handleRecentExpenses
+  handleRecentExpenses,
+  handleIncomeAndBalance,
+  handleDebtBook,
+  handleSearchExpenses
 };

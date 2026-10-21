@@ -66,27 +66,89 @@ function getCurrentMonthString() {
 }
 
 /**
- * Format a list of newly added expenses into a clean Telegram message
+ * Convert foreign currency expressions into UZS (approximate exchange rates)
  */
-function formatAddedExpensesMessage(transcription, expenses, todayTotal, monthTotal) {
-  let message = `✅ <b>Xarajatlar muvaffaqiyatli saqlandi!</b>\n\n`;
+function normalizeCurrencyAmounts(text) {
+  if (!text) return text;
+  let normalized = text;
+
+  const USD_RATE = 12850;
+  const EUR_RATE = 13900;
+  const RUB_RATE = 135;
+
+  // Match: 15 dollar, $15, 15$, 15 usd
+  normalized = normalized.replace(/(\$|usd|dollar)?\s*(\d+(?:[.,]\d+)?)\s*(\$|usd|dollar)/gi, (match, p1, num, p3) => {
+    const val = parseFloat(num.replace(',', '.'));
+    const uzs = Math.round(val * USD_RATE);
+    return `${uzs} so'm (${val} USD)`;
+  });
+
+  // Match: 50 rubl, 50 rub
+  normalized = normalized.replace(/(\d+(?:[.,]\d+)?)\s*(rubl|rub)/gi, (match, num) => {
+    const val = parseFloat(num.replace(',', '.'));
+    const uzs = Math.round(val * RUB_RATE);
+    return `${uzs} so'm (${val} RUB)`;
+  });
+
+  return normalized;
+}
+
+/**
+ * Format a list of newly added records (expenses / income) into a clean Telegram message
+ */
+function formatAddedExpensesMessage(transcription, items, todayTotal, monthExpense, monthIncome = 0, balance = null) {
+  const hasIncome = items.some(i => i.type === 'income');
+  const hasExpense = items.some(i => !i.type || i.type === 'expense');
+
+  let title = '✅ <b>Yozuv muvaffaqiyatli saqlandi!</b>\n\n';
+  if (hasIncome && !hasExpense) {
+    title = '🎉 <b>Yangi daromad kiritildi!</b>\n\n';
+  } else if (hasExpense && !hasIncome) {
+    title = '✅ <b>Xarajatlar muvaffaqiyatli saqlandi!</b>\n\n';
+  }
+
+  let message = title;
 
   if (transcription) {
     message += `🎙 <i>"${transcription}"</i>\n\n`;
   }
 
-  let batchTotal = 0;
-  expenses.forEach((item, index) => {
+  let batchTotalExpense = 0;
+  let batchTotalIncome = 0;
+
+  items.forEach((item, index) => {
+    const isIncome = item.type === 'income';
     const emoji = getCategoryEmoji(item.category);
     const amount = Number(item.amount);
-    batchTotal += amount;
-    message += `${index + 1}. ${emoji} <b>${item.description || item.category}</b>: ${formatCurrency(amount)}\n`;
-    message += `   📂 <i>Kategoriya: ${item.category}</i>\n`;
+
+    if (isIncome) {
+      batchTotalIncome += amount;
+      message += `${index + 1}. 🟢 <b>${item.description || item.category}</b>: +${formatCurrency(amount)}\n`;
+      message += `   📥 <i>Kategoriya: ${item.category} (Kirim)</i>\n`;
+    } else {
+      batchTotalExpense += amount;
+      message += `${index + 1}. 🔴 ${emoji} <b>${item.description || item.category}</b>: -${formatCurrency(amount)}\n`;
+      message += `   📂 <i>Kategoriya: ${item.category} (Chiqim)</i>\n`;
+    }
   });
 
-  message += `\n💵 <b>Ushbu yozuv:</b> ${formatCurrency(batchTotal)}\n`;
-  message += `📅 <b>Bugungi jami:</b> ${formatCurrency(todayTotal)}\n`;
-  message += `📊 <b>Ushbu oy jami:</b> ${formatCurrency(monthTotal)}`;
+  message += `\n`;
+  if (batchTotalExpense > 0) {
+    message += `💸 <b>Joriy xarajat:</b> ${formatCurrency(batchTotalExpense)}\n`;
+  }
+  if (batchTotalIncome > 0) {
+    message += `💰 <b>Joriy daromad:</b> +${formatCurrency(batchTotalIncome)}\n`;
+  }
+
+  message += `📅 <b>Bugungi chiqim:</b> ${formatCurrency(todayTotal)}\n`;
+  message += `📊 <b>Oylik jami xarajat:</b> ${formatCurrency(monthExpense)}\n`;
+
+  if (monthIncome > 0 || balance !== null) {
+    const net = balance !== null ? balance : (monthIncome - monthExpense);
+    const sign = net >= 0 ? '+' : '';
+    message += `💵 <b>Oylik daromad:</b> ${formatCurrency(monthIncome)}\n`;
+    message += `🎯 <b>Oylik sof qoldiq:</b> <b>${sign}${formatCurrency(net)}</b>`;
+  }
 
   return message;
 }
@@ -98,5 +160,6 @@ module.exports = {
   formatYearMonthUz,
   getTodayString,
   getCurrentMonthString,
+  normalizeCurrencyAmounts,
   formatAddedExpensesMessage
 };

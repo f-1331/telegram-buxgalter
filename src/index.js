@@ -37,15 +37,58 @@ bot.catch((err) => {
   console.error(e.message || e);
 });
 
-// Register Voice and Audio handlers
+// Register Voice, Audio, and Video Note handlers
 bot.on('message:voice', handleVoiceMessage);
 bot.on('message:audio', handleVoiceMessage);
+bot.on('message:video_note', handleVoiceMessage);
 
 // Register Inline button callback queries
 bot.on('callback_query:data', handleCallbackQuery);
 
 // Register Text handler
 bot.on('message:text', handleTextMessage);
+
+// Daily 21:00 Tashkent reminder check
+const db = require('./database/db');
+const { getTodayString } = require('./utils/formatters');
+let lastReminderDate = '';
+
+setInterval(async () => {
+  try {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: config.TIMEZONE || 'Asia/Tashkent',
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(now);
+    const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
+    const minute = parseInt(parts.find(p => p.type === 'minute')?.value || '0', 10);
+    const todayStr = getTodayString();
+
+    if (hour === 21 && minute < 10 && lastReminderDate !== todayStr) {
+      lastReminderDate = todayStr;
+      const users = db.getAllUsers();
+      for (const u of users) {
+        const todayTotal = db.getTodayTotal(u.id, todayStr);
+        if (todayTotal === 0) {
+          const name = u.first_name || 'Hurmatli foydalanuvchi';
+          await bot.api.sendMessage(
+            u.id,
+            `🌙 <b>Xayrli kech, ${name}!</b>\n\n` +
+            `Bugungi kuningiz qanday o'tdi? Kun davomida qilingan xarajat yoki daromadlaringizni kiritishni unutmadingizmi?\n\n` +
+            `🎙 <i>Hoziroq qisqa ovozli xabar yuborishingiz mumkin:</i>\n` +
+            `<i>"Bugun tushlikka 45 ming, yo'lkiraga 15 ming ishlatdim"</i>`,
+            { parse_mode: 'HTML' }
+          ).catch(() => {});
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[Reminder Warning]:', err.message);
+  }
+}, 60 * 1000);
 
 // Cloud & Webhook configuration
 const { webhookCallback } = require('grammy');
