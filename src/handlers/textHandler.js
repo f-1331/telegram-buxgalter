@@ -49,6 +49,49 @@ async function handleTextMessage(ctx) {
     return handleBudgetMenu(ctx);
   }
 
+  // Direct salary/income commands: e.g. "/oylik 5000000", "/daromad 6 mln", "/kirim 4.5 mln"
+  if (text.startsWith('/oylik') || text.startsWith('/daromad') || text.startsWith('/kirim')) {
+    const parts = text.split(/\s+/);
+    if (parts.length > 1) {
+      const amtStr = parts.slice(1).join(' ');
+      const { parseUzbekNumber } = require('../services/aiService');
+      const amount = parseUzbekNumber(amtStr);
+      if (amount > 0) {
+        const todayStr = getTodayString();
+        const monthStr = getCurrentMonthString();
+        const inserted = db.addExpense({
+          userId,
+          amount,
+          category: 'Oylik va Ish haqi',
+          description: 'Oylik daromad',
+          expenseDate: todayStr,
+          rawInput: text,
+          inputType: 'text',
+          type: 'income'
+        });
+        const todayTotal = db.getTodayTotal(userId, todayStr);
+        const balanceSummary = db.getMonthBalanceSummary(userId, monthStr);
+        const userBudget = db.getUserBudget(userId);
+
+        const responseMsg = formatAddedExpensesMessage(
+          null,
+          [{ amount, type: 'income', category: 'Oylik va Ish haqi', description: 'Oylik daromad', date: todayStr }],
+          todayTotal,
+          balanceSummary.expense,
+          balanceSummary.income,
+          balanceSummary.balance,
+          userBudget
+        );
+
+        return ctx.reply(responseMsg, {
+          parse_mode: 'HTML',
+          reply_markup: getExpenseActionKeyboard([inserted.id])
+        });
+      }
+    }
+    return ctx.reply('⚠️ Format: <code>/oylik [summa]</code>\nMasalan: <code>/oylik 5000000</code> yoki <code>/daromad 6 mln</code>', { parse_mode: 'HTML' });
+  }
+
   // Search commands: e.g. "/search taksi" or "/qidiruv bozorlik"
   if (text.startsWith('/search') || text.startsWith('/qidiruv')) {
     const query = text.replace(/^\/(search|qidiruv)/i, '').trim();

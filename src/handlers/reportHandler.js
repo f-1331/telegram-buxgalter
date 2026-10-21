@@ -296,9 +296,30 @@ async function handleIncomeAndBalance(ctx) {
     text += `<i>Ushbu oyda hali hech qanday kirim yoki chiqim kiritilmagan.</i>\n\n`;
   }
 
-  text += `💡 <b>Maslahat:</b> Daromad kiritish uchun ovozli yoki matnli xabar yuboring:\n• <i>"Oyligim 6 million tushdi"</i>\n• <i>"Keshbekdan 45 ming oldim"</i>`;
+  text += `💡 <b>Yoki yozing:</b> <code>/oylik 5000000</code> yoki <code>oylik 5 mln</code>\n\n` +
+    `👇 <b>Tezkor daromad qo'shish uchun tanlang:</b>`;
 
-  return ctx.reply(text, { parse_mode: 'HTML' });
+  const keyboard = new InlineKeyboard()
+    .text('➕ 3 000 000', 'add_inc_3000000')
+    .text('➕ 5 000 000', 'add_inc_5000000')
+    .row()
+    .text('➕ 7 000 000', 'add_inc_7000000')
+    .text('➕ 10 000 000', 'add_inc_10000000')
+    .row()
+    .text('➕ 15 000 000', 'add_inc_15000000')
+    .text('➕ 20 000 000', 'add_inc_20000000');
+
+  if (ctx.callbackQuery) {
+    return ctx.editMessageText(text, {
+      parse_mode: 'HTML',
+      reply_markup: keyboard
+    });
+  }
+
+  return ctx.reply(text, {
+    parse_mode: 'HTML',
+    reply_markup: keyboard
+  });
 }
 
 /**

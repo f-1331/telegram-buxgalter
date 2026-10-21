@@ -1,10 +1,10 @@
 const { InlineKeyboard, InputFile } = require('grammy');
 const db = require('../database/db');
-const { handleMonthlyReport, handleInfographic, handleExcelExport } = require('./reportHandler');
+const { handleMonthlyReport, handleInfographic, handleExcelExport, handleIncomeAndBalance } = require('./reportHandler');
 const { generateDailyTrendChart } = require('../services/chartService');
 const { handleSendDailyTrend, handleSettingsMenu } = require('./settingsHandler');
 const { handleGoalsMenu, handleSubscriptionsMenu } = require('./goalHandler');
-const { formatCurrency, formatYearMonthUz } = require('../utils/formatters');
+const { formatCurrency, formatYearMonthUz, getTodayString } = require('../utils/formatters');
 
 /**
  * Handle all inline keyboard callback queries
@@ -74,6 +74,24 @@ async function handleCallbackQuery(ctx) {
       const { handleSetBudget } = require('./aiHandler');
       await ctx.answerCallbackQuery({ text: 'Byudjet saqlandi!' });
       return handleSetBudget(ctx, amount);
+    }
+
+    // 6b. Quick add income button: 'add_inc_5000000'
+    if (data.startsWith('add_inc_')) {
+      const amount = Number(data.replace('add_inc_', ''));
+      const todayStr = getTodayString();
+      db.addExpense({
+        userId,
+        amount,
+        category: 'Oylik va Ish haqi',
+        description: 'Oylik maosh',
+        expenseDate: todayStr,
+        rawInput: 'Tugma orqali daromad',
+        inputType: 'button',
+        type: 'income'
+      });
+      await ctx.answerCallbackQuery({ text: `✅ +${formatCurrency(amount)} daromad saqlandi!` });
+      return handleIncomeAndBalance(ctx);
     }
 
     // 7. Settle debt button: 'settle_debt_12'

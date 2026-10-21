@@ -214,12 +214,20 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
 }
 
 /**
- * Process text input using Gemini AI (with offline rule-based fallback)
+ * Process text input using Fast Local Engine first, and Gemini AI for complex questions
  */
 async function processTextMessage(text) {
   const todayStr = getTodayString();
   const preprocessedText = normalizeCurrencyAmounts(text);
 
+  // 1. FAST LOCAL ENGINE FIRST (runs in 0.0005 seconds!)
+  // If it finds clear expenses/income/debts, return instantly without ANY network lag!
+  const localResult = ruleBasedUzbekParser(preprocessedText, todayStr);
+  if (localResult.has_expenses && (localResult.expenses.length > 0 || localResult.debts.length > 0)) {
+    return localResult;
+  }
+
+  // 2. Only if local parser didn't find clear expenses/debts, try Gemini with 3.5s timeout:
   const apiKey = config.GEMINI_API_KEY;
   if (apiKey && apiKey !== 'none' && !apiKey.includes('GEMINI_API_KALITI')) {
     if (!genAI) {
@@ -228,9 +236,9 @@ async function processTextMessage(text) {
 
     const prompt = `${buildPrompt(todayStr)}\n\nFoydalanuvchi matni: "${preprocessedText}"`;
     const modelsToTry = [
+      'gemini-3.5-flash-lite',
       config.GEMINI_MODEL || 'gemini-3.5-flash',
-      'gemini-3.8-flash',
-      'gemini-3.1-flash-lite'
+      'gemini-flash-lite-latest'
     ];
 
     for (const modelName of modelsToTry) {
@@ -238,31 +246,36 @@ async function processTextMessage(text) {
         const model = genAI.getGenerativeModel({ model: modelName });
         const result = await withTimeout(
           model.generateContent(prompt),
-          9000,
-          `Model ${modelName} matn tahlilida timeout bo'ldi`
+          3500,
+          `Model ${modelName} timeout`
         );
         const responseText = result.response.text();
         return cleanAndParseJSON(responseText);
       } catch (err) {
-        console.warn(`[AI Text Warning] ${modelName} xatolik:`, err.message);
+        // Continue to fallback
       }
     }
   }
 
-  // Fallback: Rule-based regex parser for Uzbek text
-  return ruleBasedUzbekParser(preprocessedText, todayStr);
+  // Fallback: Return local result
+  return localResult;
 }
 
 /**
- * Rule-based fallback parser for Uzbek text
+ * Rule-based ultra-fast parser for Uzbek text
  */
 function ruleBasedUzbekParser(text, todayStr) {
   const expenses = [];
   const debts = [];
-  const lower = text.toLowerCase();
+  
+  // Normalize spaced numbers like "5 000 000" into "5000000" for seamless regex parsing
+  const cleanSpaced = text.replace(/(\d{1,3})\s+(\d{3})(?:\s+(\d{3}))?/g, (m, g1, g2, g3) => {
+    return g3 ? `${g1}${g2}${g3}` : `${g1}${g2}`;
+  });
+  const lower = cleanSpaced.toLowerCase();
 
   // Debt detection: "Aliga 100 ming qarz berdim" or "Sobirdan 50 ming qarz oldim"
-  const debtLendMatch = lower.match(/(.+?)(?:ga|dan)?\s+(\d+(?:[.,]\d+)?\s*(?:ming|mln|million|k)?)\s+(?:so['`]?m\s+)?qarz\s+(berdim|berildi)/i);
+  const debtLendMatch = lower.match(/(.+?)(?:ga|dan)?\s+(\d+(?:[.,]\d+)?\s*(?:ming|mln|million|k|m)?)\s+(?:so['`]?m\s+)?qarz\s+(berdim|berildi)/i);
   if (debtLendMatch) {
     const person = debtLendMatch[1].replace(/bugun|kecha/gi, '').trim();
     const amt = parseUzbekNumber(debtLendMatch[2]);
@@ -276,7 +289,7 @@ function ruleBasedUzbekParser(text, todayStr) {
     }
   }
 
-  const debtBorrowMatch = lower.match(/(.+?)(?:dan)?\s+(\d+(?:[.,]\d+)?\s*(?:ming|mln|million|k)?)\s+(?:so['`]?m\s+)?qarz\s+(oldim|olindi)/i);
+  const debtBorrowMatch = lower.match(/(.+?)(?:dan)?\s+(\d+(?:[.,]\d+)?\s*(?:ming|mln|million|k|m)?)\s+(?:so['`]?m\s+)?qarz\s+(oldim|olindi)/i);
   if (debtBorrowMatch) {
     const person = debtBorrowMatch[1].replace(/bugun|kecha/gi, '').trim();
     const amt = parseUzbekNumber(debtBorrowMatch[2]);
@@ -298,33 +311,49 @@ function ruleBasedUzbekParser(text, todayStr) {
     if (!trimmed) continue;
     if (trimmed.includes('qarz berdim') || trimmed.includes('qarz oldim')) continue;
 
-    const numberMatch = trimmed.match(/(\d+(?:[.,]\d+)?)\s*(ming|mln|million|k|so['`]?m)?/i);
+    const numberMatch = trimmed.match(/(\d+(?:[.,]\d+)?)\s*(ming|mln|million|k|m|so['`]?m)?/i);
     if (!numberMatch) continue;
 
     const amount = parseUzbekNumber(numberMatch[0]);
     if (amount <= 0) continue;
 
     // Detect if this is income (Kirim)
-    const isIncome = /oylik|maosh|zarplata|avans|ish haqi|tushdi|daromad|foyda|ishladim|keshbek|mukofot/i.test(trimmed);
+    const isIncome = /oylik|maosh|zarplata|avans|ish haqi|tushdi|tushum|daromad|foyda|ishladim|keshbek|mukofot|frilans|savdo|kirim/i.test(trimmed);
     const entryType = isIncome ? 'income' : 'expense';
 
     let detectedCategory = isIncome ? 'Boshqa daromad' : 'Boshqa';
+    if (isIncome) {
+      if (/oylik|maosh|zarplata|avans|ish haqi|premiya/i.test(trimmed)) {
+        detectedCategory = 'Oylik va Ish haqi';
+      } else if (/savdo|biznes|dokon|do'kon/i.test(trimmed)) {
+        detectedCategory = 'Biznes va Savdo';
+      } else if (/frilans|mijoz|zakaz|xizmat/i.test(trimmed)) {
+        detectedCategory = 'Frilans va Xizmatlar';
+      } else if (/keshbek|mukofot|bonus/i.test(trimmed)) {
+        detectedCategory = 'Keshbek va Mukofot';
+      } else if (/qarz qaytdi|qarzimni qaytardi/i.test(trimmed)) {
+        detectedCategory = 'Qarz qaytishi';
+      } else {
+        detectedCategory = 'Boshqa daromad';
+      }
+    } else {
+      for (const [catName, catData] of Object.entries(CATEGORIES)) {
+        if (catData.keywords.some(kw => trimmed.includes(kw))) {
+          detectedCategory = catName;
+          break;
+        }
+      }
+    }
+
     let description = trimmed
       .replace(numberMatch[0], '')
-      .replace(/ga\b|dan\b|da\b|uchun\b|ishlatdim\b|ketdi\b|to'ladim\b|berdim\b|qildim\b|oldim\b|tushdi\b/gi, '')
+      .replace(/ga\b|dan\b|da\b|uchun\b|ishlatdim\b|ketdi\b|to'ladim\b|berdim\b|qildim\b|oldim\b|tushdi\b|kiritish\b|kiritdim\b|yoz\b/gi, '')
       .trim();
 
     if (description) {
       description = description.charAt(0).toUpperCase() + description.slice(1);
     } else {
-      description = isIncome ? 'Daromad' : 'Xarajat';
-    }
-
-    for (const [catName, catData] of Object.entries(CATEGORIES)) {
-      if (catData.keywords.some(kw => trimmed.includes(kw))) {
-        detectedCategory = catName;
-        break;
-      }
+      description = isIncome ? 'Oylik daromad' : 'Xarajat';
     }
 
     expenses.push({
@@ -349,7 +378,25 @@ function ruleBasedUzbekParser(text, todayStr) {
  */
 function parseUzbekNumber(str) {
   if (!str) return 0;
-  const match = str.match(/(\d+(?:[.,]\d+)?)\s*(ming|mln|million|k|so['`]?m)?/i);
+
+  // 1. Spaced thousands: e.g. "5 000 000" or "150 000"
+  const spacedMatch = str.match(/(\d{1,3}(?:\s+\d{3})+)(?:\s*(?:so['`]?m)?)?/i);
+  if (spacedMatch) {
+    const rawDigits = spacedMatch[1].replace(/\s+/g, '');
+    const val = parseInt(rawDigits, 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+
+  // 2. Dotted thousands: e.g. "5.000.000"
+  const dottedMatch = str.match(/(\d{1,3}(?:\.\d{3}){1,3})/);
+  if (dottedMatch) {
+    const rawDigits = dottedMatch[1].replace(/\./g, '');
+    const val = parseInt(rawDigits, 10);
+    if (!isNaN(val) && val > 0) return val;
+  }
+
+  // 3. Number with unit: e.g. "5 mln", "1.5 million", "25 ming", "500k", "5000000"
+  const match = str.match(/(\d+(?:[.,]\d+)?)\s*(ming|mln|million|k|m|so['`]?m)?/i);
   if (!match) return 0;
 
   let baseNum = parseFloat(match[1].replace(',', '.'));
@@ -357,7 +404,7 @@ function parseUzbekNumber(str) {
 
   if (unit.startsWith('ming') || unit === 'k') {
     baseNum *= 1000;
-  } else if (unit.startsWith('mln') || unit.startsWith('million')) {
+  } else if (unit.startsWith('mln') || unit.startsWith('million') || unit === 'm') {
     baseNum *= 1000000;
   } else if (baseNum < 1000 && !unit.includes('so')) {
     baseNum *= 1000;
@@ -632,5 +679,7 @@ module.exports = {
   processReceiptImage,
   getAIFinancialAdvice,
   calculateForecast,
-  chatWithFinancialAI
+  chatWithFinancialAI,
+  parseUzbekNumber,
+  ruleBasedUzbekParser
 };
