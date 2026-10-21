@@ -18,7 +18,7 @@ const resolvedBotToken = (rawBotToken && !rawBotToken.includes('TELEGRAM_BOT_TOK
 const config = {
   BOT_TOKEN: resolvedBotToken,
   GEMINI_API_KEY: resolvedGeminiKey,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
   DATA_DIR: path.join(__dirname, '../data'),
   EXPORTS_DIR: path.join(__dirname, '../data/exports'),
   TIMEZONE: process.env.TIMEZONE || 'Asia/Tashkent'

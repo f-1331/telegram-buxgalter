@@ -175,11 +175,10 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
   const base64Audio = audioBuffer.toString('base64');
 
   const modelsToTry = [
-    config.GEMINI_MODEL || 'gemini-3.5-flash',
-    'gemini-3.8-flash',
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
     'gemini-3.1-flash-lite',
-    'gemini-3.6-flash',
-    'gemini-flash-latest'
+    config.GEMINI_MODEL || 'gemini-3.5-flash'
   ];
 
   let lastError = null;
@@ -197,8 +196,8 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
           },
           { text: prompt }
         ]),
-        14000,
-        `Model ${modelName} ovozni tahlil qilishda javob bermadi (14s timeout)`
+        8000,
+        `Model ${modelName} ovozni tahlil qilishda javob bermadi (8s timeout)`
       );
 
       const responseText = result.response.text();
@@ -206,7 +205,7 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
     } catch (err) {
       console.warn(`[AI Audio Warning] Model ${modelName} bilan xatolik:`, err.message);
       lastError = err;
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 200));
     }
   }
 
@@ -625,9 +624,10 @@ Agar rasmda umuman chek, to'lov yoki pulga oid ma'lumot bo'lmasa (masalan tabiat
 
   const base64Image = imageBuffer.toString('base64');
   const modelsToTry = [
-    config.GEMINI_MODEL || 'gemini-3.5-flash',
-    'gemini-3.8-flash',
-    'gemini-3.1-flash-lite'
+    'gemini-3.5-flash-lite',
+    'gemini-flash-lite-latest',
+    'gemini-3.1-flash-lite',
+    config.GEMINI_MODEL || 'gemini-3.5-flash'
   ];
 
   let lastError = null;
@@ -644,7 +644,7 @@ Agar rasmda umuman chek, to'lov yoki pulga oid ma'lumot bo'lmasa (masalan tabiat
           },
           { text: prompt }
         ]),
-        16000,
+        8000,
         `Model ${modelName} chek tahlilida timeout bo'ldi`
       );
 

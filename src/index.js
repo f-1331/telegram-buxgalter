@@ -95,23 +95,32 @@ setInterval(async () => {
 }, 60 * 1000);
 
 // Cloud & Webhook configuration
-const { webhookCallback } = require('grammy');
 const http = require('node:http');
 
 const PORT = process.env.PORT || 3000;
 const isCloud = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
-const webhookHandler = webhookCallback(bot, 'http');
 
-const server = http.createServer(async (req, res) => {
-  // Telegram Webhook endpoint
+const server = http.createServer((req, res) => {
+  // Telegram Webhook endpoint (Acknowledge immediately in <2ms, process update asynchronously)
   if (req.method === 'POST' && req.url === '/webhook') {
-    try {
-      return await webhookHandler(req, res);
-    } catch (err) {
-      console.error('[Webhook Error]:', err);
-      res.writeHead(500);
-      return res.end('Internal Server Error');
-    }
+    let rawBody = '';
+    req.on('data', chunk => { rawBody += chunk; });
+    req.on('end', async () => {
+      // 1. Acknowledge Telegram immediately to eliminate any webhook timeout
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+
+      // 2. Process update asynchronously without blocking Telegram
+      try {
+        if (rawBody) {
+          const update = JSON.parse(rawBody);
+          await bot.handleUpdate(update);
+        }
+      } catch (err) {
+        console.error('[Update Processing Error]:', err.message);
+      }
+    });
+    return;
   }
 
   // Health check endpoint for UptimeRobot, cron-job, and browsers
@@ -122,7 +131,7 @@ const server = http.createServer(async (req, res) => {
     mode: isCloud ? 'webhook' : 'polling',
     hasGeminiKey: Boolean(config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'none' && !config.GEMINI_API_KEY.includes('GEMINI_API_KALITI')),
     model: config.GEMINI_MODEL,
-    version: '3.5-flash-voice-ready',
+    version: '3.5-flash-lite-high-speed',
     uptime: Math.round(process.uptime()) + 's'
   }));
 });
@@ -141,6 +150,16 @@ server.listen(PORT, async () => {
         drop_pending_updates: false
       });
       console.log(`✅ Webhook muvaffaqiyatli ulandi! Telegram xabarlari to'g'ridan-to'g'ri qabul qilinadi.`);
+
+      // Self Keep-Alive Ping Loop (Pings every 4 minutes to prevent Render Free Tier from sleeping)
+      setInterval(async () => {
+        try {
+          const pingRes = await fetch(`${baseUrl}/`);
+          console.log(`[Keep-Alive Ping] Status: ${pingRes.status} (Render uptime preserved)`);
+        } catch (pingErr) {
+          console.warn('[Keep-Alive Warning]:', pingErr.message);
+        }
+      }, 4 * 60 * 1000);
     } catch (err) {
       console.error('❌ Webhook o\'rnatishda xatolik:', err.message);
       startPollingLoop();
