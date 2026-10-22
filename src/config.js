@@ -15,7 +15,9 @@ const rawBotToken = (process.env.BOT_TOKEN || '').trim();
 // Fallback xavfsiz shifrlangan shaklda (GitHub bot-skanerlari aniqlay olmaydi)
 const fallbackBotToken = decrypt('62626f6862696c6c6a6e601b1b1f771d001720222a773b146b376917192d026d3c3c141c6c10101e230e3e2a0d0f', 0x5A);
 
-const resolvedBotToken = (rawBotToken && !rawBotToken.includes('TELEGRAM_BOT_TOKENI'))
+// Eski o'g'irlangan token (AAHY_) Render Environment'da qolib ketgan bo'lsa ham uni inkor qilamiz
+const isOldCompromisedToken = rawBotToken.includes('AAHY_') || rawBotToken.includes('TELEGRAM_BOT_TOKENI');
+const resolvedBotToken = (rawBotToken && !isOldCompromisedToken)
   ? rawBotToken
   : fallbackBotToken;
 
