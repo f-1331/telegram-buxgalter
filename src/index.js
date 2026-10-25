@@ -113,6 +113,9 @@ const server = http.createServer((req, res) => {
       // 2. Process update asynchronously without blocking Telegram
       try {
         if (rawBody) {
+          if (!bot.isInited()) {
+            await bot.init();
+          }
           const update = JSON.parse(rawBody);
           await bot.handleUpdate(update);
         }
@@ -121,6 +124,18 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  }
+
+  // Diagnostic endpoint for bot initialization check
+  if (req.method === 'GET' && req.url === '/bot-status') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    return res.end(JSON.stringify({
+      status: 'ok',
+      initialized: bot.isInited(),
+      botUsername: bot.botInfo?.username || null,
+      mode: isCloud ? 'webhook' : 'polling',
+      uptime: Math.round(process.uptime()) + 's'
+    }));
   }
 
   // Health check endpoint for UptimeRobot, cron-job, and browsers
@@ -138,6 +153,15 @@ const server = http.createServer((req, res) => {
 
 server.listen(PORT, async () => {
   console.log(`🌐 Server listening on port ${PORT} (Mode: ${isCloud ? 'CLOUD WEBHOOK' : 'LOCAL POLLING'})`);
+
+  try {
+    if (!bot.isInited()) {
+      await bot.init();
+      console.log(`🤖 Bot muvaffaqiyatli ishga tushirildi: @${bot.botInfo.username}`);
+    }
+  } catch (initErr) {
+    console.error('❌ Bot init xatoligi:', initErr.message);
+  }
 
   if (isCloud) {
     try {
