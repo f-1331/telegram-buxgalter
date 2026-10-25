@@ -151,11 +151,22 @@ server.listen(PORT, async () => {
       });
       console.log(`✅ Webhook muvaffaqiyatli ulandi! Telegram xabarlari to'g'ridan-to'g'ri qabul qilinadi.`);
 
-      // Self Keep-Alive Ping Loop (Pings every 4 minutes to prevent Render Free Tier from sleeping)
+      // Self Keep-Alive Ping & Self-Healing Webhook Loop (Runs every 4 minutes)
       setInterval(async () => {
         try {
           const pingRes = await fetch(`${baseUrl}/`);
           console.log(`[Keep-Alive Ping] Status: ${pingRes.status} (Render uptime preserved)`);
+          
+          // Self-Healing Webhook: Agar webhook o'chib qolgan bo'lsa, avtomatik qayta ulaydi
+          const info = await bot.api.getWebhookInfo().catch(() => null);
+          if (info && info.url !== webhookUrl) {
+            console.log(`⚠️ Webhook uzilgan yoki noto'g'ri (Joriy: '${info.url}'). Qayta tiklanmoqda...`);
+            await bot.api.setWebhook(webhookUrl, {
+              allowed_updates: ['message', 'callback_query'],
+              drop_pending_updates: false
+            });
+            console.log(`✅ Webhook avtomatik tiklandi: ${webhookUrl}`);
+          }
         } catch (pingErr) {
           console.warn('[Keep-Alive Warning]:', pingErr.message);
         }
@@ -190,14 +201,35 @@ async function startPollingLoop() {
   }
 }
 
+// Bulutli serverga webhookni qaytarish (noutbuk o'chganda yoki to'xtatilganda)
+async function restoreWebhookToCloud() {
+  if (!isCloud) {
+    try {
+      const cloudUrl = 'https://telegram-buxgalter.onrender.com/webhook';
+      console.log(`\n📡 Local rejim tugatildi. Webhook Render bulutiga qaytarilmoqda...`);
+      await bot.api.setWebhook(cloudUrl, {
+        allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: false
+      });
+      console.log(`✅ Webhook Render'ga topshirildi: ${cloudUrl}`);
+    } catch (e) {
+      console.warn('[Restore Webhook Error]:', e.message);
+    }
+  }
+}
+
 // Handle graceful shutdown
-process.once('SIGINT', () => {
+process.once('SIGINT', async () => {
   console.log('\n🛑 Bot to\'xtatilmoqda (SIGINT)...');
+  await restoreWebhookToCloud();
   server.close();
   bot.stop();
+  process.exit(0);
 });
-process.once('SIGTERM', () => {
+process.once('SIGTERM', async () => {
   console.log('\n🛑 Bot to\'xtatilmoqda (SIGTERM)...');
+  await restoreWebhookToCloud();
   server.close();
   bot.stop();
+  process.exit(0);
 });
