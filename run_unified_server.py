@@ -103,21 +103,34 @@ def is_render_down():
 
 
 def update_telegram_webhook(target_url: str):
-    webhook_url = f"{target_url.rstrip('/')}/webhook"
-    try:
-        r = httpx.post(
-            f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-            json={
-                "url": webhook_url,
-                "allowed_updates": ["message", "callback_query"],
-                "drop_pending_updates": False
-            },
-            timeout=10.0
-        )
-        if r.json().get("ok"):
-            logger.info(f"✅ Telegram Webhook yangilandi -> {webhook_url}")
-    except Exception as e:
-        logger.warning(f"Telegram webhook sozlashda xatolik: {e}")
+    if "onrender.com" in target_url:
+        webhook_url = f"{target_url.rstrip('/')}/webhook"
+        try:
+            r = httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+                json={
+                    "url": webhook_url,
+                    "allowed_updates": ["message", "callback_query"],
+                    "drop_pending_updates": False
+                },
+                timeout=10.0
+            )
+            if r.json().get("ok"):
+                logger.info(f"✅ Telegram Webhook Render'ga ulandi -> {webhook_url}")
+        except Exception as e:
+            logger.warning(f"Telegram webhook sozlashda xatolik: {e}")
+    else:
+        # Zaxira rejimda webhook o'chiriladi, shunda lokal bot darhol polling orqali javob beradi
+        try:
+            r = httpx.post(
+                f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+                json={"drop_pending_updates": False},
+                timeout=10.0
+            )
+            if r.json().get("ok"):
+                logger.info("✅ Telegram Webhook tozalandi, lokal bot uzilishsiz xabarlarni qabul qilmoqda.")
+        except Exception as e:
+            logger.warning(f"Telegram webhook tozalashda xatolik: {e}")
 
 
 def notify_owner(msg: str):

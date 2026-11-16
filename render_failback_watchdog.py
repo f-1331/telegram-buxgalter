@@ -110,26 +110,41 @@ def update_vercel_route(new_target_url: str, target_name: str) -> bool:
 
 
 async def update_telegram_webhook(target_url: str) -> bool:
-    webhook_url = f"{target_url.rstrip('/')}/webhook"
-    logger.info(f"📡 Telegram Webhook yangilanmoqda: {webhook_url}")
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(
-                f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
-                json={
-                    "url": webhook_url,
-                    "allowed_updates": ["message", "callback_query"],
-                    "drop_pending_updates": False
-                }
-            )
-            data = resp.json()
-            if data.get("ok"):
-                logger.info(f"✅ Telegram Webhook muvaffaqiyatli yo'naltirildi: {webhook_url}")
-                return True
-            else:
-                logger.warning(f"Telegram Webhook javobi: {data}")
-    except Exception as e:
-        logger.error(f"Telegram Webhook o'rnatishda xatolik: {e}")
+    if "onrender.com" in target_url:
+        webhook_url = f"{target_url.rstrip('/')}/webhook"
+        logger.info(f"📡 Telegram Webhook Render bulutiga ulanmoqda: {webhook_url}")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/setWebhook",
+                    json={
+                        "url": webhook_url,
+                        "allowed_updates": ["message", "callback_query"],
+                        "drop_pending_updates": False
+                    }
+                )
+                data = resp.json()
+                if data.get("ok"):
+                    logger.info(f"✅ Telegram Webhook Render'ga muvaffaqiyatli yo'naltirildi: {webhook_url}")
+                    return True
+                else:
+                    logger.warning(f"Telegram Webhook javobi: {data}")
+        except Exception as e:
+            logger.error(f"Telegram Webhook o'rnatishda xatolik: {e}")
+    else:
+        # Zaxira rejim: agar tunnel bo'lsa, webhook olib tashlanadi va lokal bot polling orqali to'g'ridan-to'g'ri qabul qiladi
+        logger.info("ℹ️ Zaxira rejim: Webhook tozalanib, lokal bot to'g'ridan-to'g'ri xabarlarni qabul qiladi.")
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(
+                    f"https://api.telegram.org/bot{BOT_TOKEN}/deleteWebhook",
+                    json={"drop_pending_updates": False}
+                )
+                if resp.json().get("ok"):
+                    logger.info("✅ Webhook olib tashlandi, lokal server to'siqsiz ishlamoqda.")
+                    return True
+        except Exception as e:
+            logger.warning(f"deleteWebhook xatoligi: {e}")
     return False
 
 
