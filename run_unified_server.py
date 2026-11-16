@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 import httpx
@@ -20,6 +21,17 @@ LOCAL_PORT = 3001
 BOT_TOKEN = "8852836604:AAE-GZMzxp-aN1m3MCwX7ffNF6JJDyTdpWU"
 OWNER_TELEGRAM_ID = 6707839718
 RENDER_HEALTH_URL = "https://telegram-buxgalter.onrender.com/health"
+
+
+def drain_pipe(proc):
+    """Continuously drain cloudflared stdout to prevent OS pipe buffer overflow."""
+    try:
+        while proc and proc.poll() is None:
+            line = proc.stdout.readline()
+            if not line:
+                break
+    except Exception:
+        pass
 
 
 def start_cloudflared_tunnel():
@@ -57,6 +69,9 @@ def start_cloudflared_tunnel():
         logger.error("35 soniya ichida tunnel URL olinmadi.")
         proc.terminate()
         return None, None
+
+    # Start background thread to drain stdout continuously
+    threading.Thread(target=drain_pipe, args=(proc,), daemon=True).start()
 
     logger.info(f"✅ Jonli Cloudflare Tunnel manzili: {tunnel_url}")
     with open(BASE_DIR / "tunnel_url.txt", "w", encoding="utf-8") as f:
@@ -213,21 +228,35 @@ def main():
     logger.info("="*60 + "\n")
 
     try:
-        # Keep process alive
+        # Keep process alive with auto-healing loops
         while True:
-            time.sleep(2)
+            time.sleep(3)
+
+            # Node.js auto-restart if it stopped
             if node_proc and node_proc.poll() is not None:
-                logger.error("Node.js serveri to'xtab qoldi!")
-                break
+                logger.warning("⚠️ Node.js serveri to'xtab qoldi. Qayta ishga tushirilmoqda...")
+                env = os.environ.copy()
+                env["PORT"] = str(LOCAL_PORT)
+                node_proc = subprocess.Popen(["node", "src/index.js"], cwd=str(BASE_DIR), env=env)
+                time.sleep(2)
+
+            # Cloudflare tunnel auto-restart if it disconnected
             if cf_proc and cf_proc.poll() is not None:
-                logger.error("Cloudflare tunnel to'xtab qoldi!")
-                break
+                logger.warning("⚠️ Cloudflare tunnel uzildi. Qayta ulanmoqda...")
+                cf_proc, new_url = start_cloudflared_tunnel()
+                if new_url:
+                    tunnel_url = new_url
+                    logger.info(f"🔄 Yangilangan zaxira tunnel URL: {tunnel_url}")
+                    if is_render_down():
+                        update_vercel_json_and_push(tunnel_url)
+                        update_telegram_webhook(tunnel_url)
+
     except KeyboardInterrupt:
         logger.info("\nTo'xtatilmoqda...")
     finally:
-        if node_proc:
+        if node_proc and node_proc.poll() is None:
             node_proc.terminate()
-        if cf_proc:
+        if cf_proc and cf_proc.poll() is None:
             cf_proc.terminate()
 
 
