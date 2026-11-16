@@ -146,7 +146,7 @@ const server = http.createServer((req, res) => {
     mode: isCloud ? 'webhook' : 'polling',
     hasGeminiKey: Boolean(config.GEMINI_API_KEY && config.GEMINI_API_KEY !== 'none' && !config.GEMINI_API_KEY.includes('GEMINI_API_KALITI')),
     model: config.GEMINI_MODEL,
-    version: '3.5-flash-lite-high-speed',
+    version: '2.5-flash-pro-features',
     uptime: Math.round(process.uptime()) + 's'
   }));
 });
@@ -225,17 +225,24 @@ async function startPollingLoop() {
   }
 }
 
-// Bulutli serverga webhookni qaytarish (noutbuk o'chganda yoki to'xtatilganda)
+// Bulutli serverga webhookni qaytarish (agar server haqiqatan ishlab turgan bo'lsa)
 async function restoreWebhookToCloud() {
   if (!isCloud) {
     try {
-      const cloudUrl = 'https://telegram-buxgalter.onrender.com/webhook';
-      console.log(`\n📡 Local rejim tugatildi. Webhook Render bulutiga qaytarilmoqda...`);
-      await bot.api.setWebhook(cloudUrl, {
-        allowed_updates: ['message', 'callback_query'],
-        drop_pending_updates: false
-      });
-      console.log(`✅ Webhook Render'ga topshirildi: ${cloudUrl}`);
+      const cloudUrl = 'https://telegram-buxgalter.onrender.com';
+      console.log(`\n🔍 Bulutli server holati tekshirilmoqda (${cloudUrl})...`);
+      
+      const checkRes = await fetch(`${cloudUrl}/health`, { signal: AbortSignal.timeout(3000) }).catch(() => null);
+      if (checkRes && checkRes.ok) {
+        console.log(`📡 Bulutli server faol (200 OK). Webhook Render bulutiga topshirilmoqda...`);
+        await bot.api.setWebhook(`${cloudUrl}/webhook`, {
+          allowed_updates: ['message', 'callback_query'],
+          drop_pending_updates: false
+        });
+        console.log(`✅ Webhook Render'ga topshirildi.`);
+      } else {
+        console.log(`ℹ️ Bulutli server to'xtatilgan yoki javob bermadi (${checkRes ? checkRes.status : 'offline'}). Webhook o'rnatilmadi.`);
+      }
     } catch (e) {
       console.warn('[Restore Webhook Error]:', e.message);
     }

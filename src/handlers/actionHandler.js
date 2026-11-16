@@ -94,6 +94,43 @@ async function handleCallbackQuery(ctx) {
       return handleIncomeAndBalance(ctx);
     }
 
+    // 6c. Quick add expense button: 'quick_exp_15000_Kofe'
+    if (data.startsWith('quick_exp_')) {
+      const parts = data.replace('quick_exp_', '').split('_');
+      const amount = Number(parts[0]);
+      const desc = parts.slice(1).join(' ') || 'Xarajat';
+      const todayStr = getTodayString();
+      
+      let cat = 'Boshqa';
+      if (desc === 'Kofe' || desc === 'Tushlik') cat = 'Oziq-ovqat va Kafe';
+      else if (desc === 'Taksi' || desc === 'Benzin') cat = 'Transport';
+      else if (desc === 'Bozorlik') cat = 'Bozor va Supermarket';
+      else if (desc.includes('aloqa')) cat = 'Aloqa va Internet';
+
+      const exp = db.addExpense({
+        userId,
+        amount,
+        category: cat,
+        description: desc,
+        expenseDate: todayStr,
+        rawInput: `Tezkor: ${desc} ${amount}`,
+        inputType: 'button',
+        type: 'expense'
+      });
+
+      const { getExpenseActionKeyboard } = require('../utils/keyboards');
+      await ctx.answerCallbackQuery({ text: `✅ ${desc} (${formatCurrency(amount)}) qo'shildi!` });
+      return ctx.reply(
+        `⚡️ <b>Tezkor xarajat yozildi:</b>\n` +
+        `• <b>${desc}:</b> ${formatCurrency(amount)} (${cat})\n` +
+        `📅 Sana: ${todayStr}`,
+        {
+          parse_mode: 'HTML',
+          reply_markup: getExpenseActionKeyboard([exp.id])
+        }
+      );
+    }
+
     // 7. Settle debt button: 'settle_debt_12'
     if (data.startsWith('settle_debt_')) {
       const debtId = Number(data.replace('settle_debt_', ''));

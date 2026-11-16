@@ -9,6 +9,36 @@ if (config.GEMINI_API_KEY) {
 }
 
 /**
+ * Validate and set a new Gemini API Key at runtime
+ */
+async function validateAndSetGeminiKey(newKey) {
+  const clean = (newKey || '').trim();
+  if (!clean || clean.length < 20) {
+    return { ok: false, error: 'Kalit formati noto\'g\'ri (juda qisqa)' };
+  }
+
+  try {
+    const testAI = new GoogleGenerativeAI(clean);
+    const testModel = testAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const res = await withTimeout(
+      testModel.generateContent('1+1 nechiga teng? Faqat bitta raqam yoz.'),
+      7000,
+      'Google AI serveriga ulanishda timeout yuz berdi'
+    );
+    const text = res.response.text();
+    if (text) {
+      // Kalit 100% to'g'ri ishlamoqda
+      config.setGeminiKey(clean);
+      genAI = testAI;
+      return { ok: true, message: 'Gemini API kaliti muvaffaqiyatli tekshirildi va ulandi!' };
+    }
+    return { ok: false, error: 'Noma\'lum javob olindi' };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
  * Executes a promise with a timeout limit (prevents hangs during API spikes)
  */
 function withTimeout(promise, ms = 12000, errorMsg = 'Gemini so\'rovi vaqti tugadi') {
@@ -175,10 +205,9 @@ async function processVoiceAudio(audioBuffer, mimeType = 'audio/ogg') {
   const base64Audio = audioBuffer.toString('base64');
 
   const modelsToTry = [
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
-    'gemini-3.1-flash-lite',
-    config.GEMINI_MODEL || 'gemini-3.5-flash'
+    config.GEMINI_MODEL || 'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash'
   ];
 
   let lastError = null;
@@ -235,9 +264,9 @@ async function processTextMessage(text) {
 
     const prompt = `${buildPrompt(todayStr)}\n\nFoydalanuvchi matni: "${preprocessedText}"`;
     const modelsToTry = [
-      'gemini-3.5-flash-lite',
-      config.GEMINI_MODEL || 'gemini-3.5-flash',
-      'gemini-flash-lite-latest'
+      config.GEMINI_MODEL || 'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash'
     ];
 
     for (const modelName of modelsToTry) {
@@ -394,7 +423,21 @@ function parseUzbekNumber(str) {
     if (!isNaN(val) && val > 0) return val;
   }
 
-  // 3. Number with unit: e.g. "5 mln", "1.5 million", "25 ming", "500k", "5000000"
+  // 3. Foreign currency detection: e.g. "50 dollar", "20 $", "3000 rubl", "100 euro"
+  const currMatch = str.match(/(\d+(?:[.,]\d+)?)\s*(\$|usd|dollar|rubl|rub|yevro|euro|eur|€)/i);
+  if (currMatch) {
+    const amt = parseFloat(currMatch[1].replace(',', '.'));
+    const cur = currMatch[2].toLowerCase();
+    if (cur === '$' || cur === 'usd' || cur === 'dollar') {
+      return Math.round(amt * 12050);
+    } else if (cur === 'rubl' || cur === 'rub') {
+      return Math.round(amt * 146);
+    } else if (cur === 'yevro' || cur === 'euro' || cur === 'eur' || cur === '€') {
+      return Math.round(amt * 13300);
+    }
+  }
+
+  // 4. Number with unit: e.g. "5 mln", "1.5 million", "25 ming", "500k", "5000000"
   const match = str.match(/(\d+(?:[.,]\d+)?)\s*(ming|mln|million|k|m|so['`]?m)?/i);
   if (!match) return 0;
 
@@ -455,7 +498,11 @@ Foydalanuvchiga Telegram xabari formatida (HTML teglari: <b>, <i>, <code> bilan)
 4. O'zbekona mehmondorchilik va hayot tarziga mos, muloyim motivatsiya bering.
 `;
 
-    const modelsToTry = [config.GEMINI_MODEL || 'gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    const modelsToTry = [
+      config.GEMINI_MODEL || 'gemini-2.5-flash',
+      'gemini-2.0-flash',
+      'gemini-1.5-flash'
+    ];
     for (const m of modelsToTry) {
       try {
         const model = genAI.getGenerativeModel({ model: m });
@@ -624,10 +671,9 @@ Agar rasmda umuman chek, to'lov yoki pulga oid ma'lumot bo'lmasa (masalan tabiat
 
   const base64Image = imageBuffer.toString('base64');
   const modelsToTry = [
-    'gemini-3.5-flash-lite',
-    'gemini-flash-lite-latest',
-    'gemini-3.1-flash-lite',
-    config.GEMINI_MODEL || 'gemini-3.5-flash'
+    config.GEMINI_MODEL || 'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash'
   ];
 
   let lastError = null;
@@ -681,5 +727,6 @@ module.exports = {
   calculateForecast,
   chatWithFinancialAI,
   parseUzbekNumber,
-  ruleBasedUzbekParser
+  ruleBasedUzbekParser,
+  validateAndSetGeminiKey
 };

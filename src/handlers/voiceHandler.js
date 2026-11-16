@@ -129,6 +129,17 @@ async function handleVoiceMessage(ctx) {
     });
   } catch (error) {
     console.error('[VoiceHandler Error]:', error);
+    if (error.message.includes('API key not valid') || error.message.includes('API_KEY_INVALID') || error.message.includes('GEMINI_API_KEY')) {
+      return ctx.reply(
+        `⚠️ <b>Gemini API kaliti kiritilmagan yoki eskirgan.</b>\n\n` +
+        `Ovozli xabarlar va cheklarni sun'iy intellekt orqali o'qish uchun yangi bepul kalitni quyidagicha o'rnating:\n` +
+        `1. <a href="https://aistudio.google.com/app/apikey">Google AI Studio</a> saytiga kiring (bepul).\n` +
+        `2. <b>"Create API key"</b> tugmasini bosing.\n` +
+        `3. Olingan kalitni botga <code>/setkey KALITINGIZ</code> ko'rinishida yuboring!\n\n` +
+        `💡 <i>Hozircha xarajatlaringizni matn orqali bemalol kiritishingiz mumkin (masalan: "Tushlik 35000")!</i>`,
+        { parse_mode: 'HTML' }
+      );
+    }
     return ctx.reply(
       `❌ <b>Ovozni qayta ishlashda xatolik:</b>\n<code>${error.message}</code>\n\n` +
       `Iltimos, qaytadan urinib ko'ring yoki xarajatni matn ko'rinishida yozing.`,

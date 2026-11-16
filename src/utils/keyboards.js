@@ -11,15 +11,32 @@ function getMainKeyboard() {
     .row()
     .text('🤝 Qarz daftari').text('📅 Bugungi hisob')
     .row()
+    .text('⚡️ Tezkor xarajat').text('💱 Valyuta kursi')
+    .row()
     .text('🎯 Jamg\'arma maqsadlari').text('🔄 Doimiy to\'lovlar')
     .row()
-    .text('💡 AI Maslahatchi').text('🔮 Kelajak prognozi')
+    .text('💡 AI Maslahatchi').text('🏆 Moliyaviy baho')
     .row()
     .text('🎯 Oylik byudjet').text('🔍 Qidiruv')
     .row()
     .text('⚙️ Sozlamalar').text('ℹ️ Qo\'llanma')
     .resized()
     .persistent();
+}
+
+/**
+ * Inline keyboard for 1-click popular quick expenses
+ */
+function getQuickExpenseKeyboard() {
+  return new InlineKeyboard()
+    .text('☕️ Kofe (15 000)', 'quick_exp_15000_Kofe')
+    .text('🚕 Taksi (20 000)', 'quick_exp_20000_Taksi')
+    .row()
+    .text('🍱 Tushlik (40 000)', 'quick_exp_40000_Tushlik')
+    .text('🛒 Bozorlik (100 000)', 'quick_exp_100000_Bozorlik')
+    .row()
+    .text('⛽️ Benzin (150 000)', 'quick_exp_150000_Benzin')
+    .text('📱 Aloqa (50 000)', 'quick_exp_50000_Mobil aloqa');
 }
 
 /**
@@ -91,6 +108,7 @@ function getMonthReportKeyboard(currentYearMonth) {
 
 module.exports = {
   getMainKeyboard,
+  getQuickExpenseKeyboard,
   getBudgetSelectionKeyboard,
   getExpenseActionKeyboard,
   getDebtActionKeyboard,

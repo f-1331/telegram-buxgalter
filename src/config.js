@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const path = require('node:path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
@@ -5,11 +6,9 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const decrypt = (hex, key) => Buffer.from(hex, 'hex').map(b => b ^ key).toString();
 
 const rawGeminiKey = (process.env.GEMINI_API_KEY || '').trim();
-// Fallback faqat shifrlangan shaklda
-const fallbackGeminiKey = decrypt('1b13203b092319096f1622392f0e6b131732686c220d3e2a1433221e6d6d151c6c3d3d0f122f0b', 0x5A);
 const resolvedGeminiKey = (rawGeminiKey && rawGeminiKey !== 'none' && !rawGeminiKey.includes('GEMINI_API_KALITI'))
   ? rawGeminiKey
-  : fallbackGeminiKey;
+  : '';
 
 const rawBotToken = (process.env.BOT_TOKEN || '').trim();
 // Fallback xavfsiz shifrlangan shaklda (GitHub bot-skanerlari aniqlay olmaydi)
@@ -24,10 +23,40 @@ const resolvedBotToken = (rawBotToken && !isOldCompromisedToken)
 const config = {
   BOT_TOKEN: resolvedBotToken,
   GEMINI_API_KEY: resolvedGeminiKey,
-  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
+  GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
   DATA_DIR: path.join(__dirname, '../data'),
   EXPORTS_DIR: path.join(__dirname, '../data/exports'),
-  TIMEZONE: process.env.TIMEZONE || 'Asia/Tashkent'
+  TIMEZONE: process.env.TIMEZONE || 'Asia/Tashkent',
+
+  /**
+   * Save and apply new Gemini API Key dynamically
+   */
+  setGeminiKey(newKey) {
+    const cleanKey = (newKey || '').trim();
+    config.GEMINI_API_KEY = cleanKey;
+    process.env.GEMINI_API_KEY = cleanKey;
+
+    // Update .env file
+    try {
+      const envPath = path.join(__dirname, '../.env');
+      let envContent = '';
+      if (fs.existsSync(envPath)) {
+        envContent = fs.readFileSync(envPath, 'utf8');
+      }
+
+      if (envContent.includes('GEMINI_API_KEY=')) {
+        envContent = envContent.replace(/GEMINI_API_KEY=.*/g, `GEMINI_API_KEY=${cleanKey}`);
+      } else {
+        envContent += `\nGEMINI_API_KEY=${cleanKey}\n`;
+      }
+      fs.writeFileSync(envPath, envContent, 'utf8');
+      console.log('✅ GEMINI_API_KEY .env fayliga saqlandi.');
+      return true;
+    } catch (e) {
+      console.warn('⚠️ .env faylini yangilashda ogohlantirish:', e.message);
+      return false;
+    }
+  }
 };
 
 module.exports = config;

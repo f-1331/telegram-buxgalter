@@ -39,6 +39,67 @@ async function handleTextMessage(ctx) {
     return handleHelpCommand(ctx);
   }
 
+  // Dynamic Gemini API Key setup command: e.g. "/setkey AIzaSy..."
+  if (text.startsWith('/setkey') || text.startsWith('/key')) {
+    const parts = text.split(/\s+/);
+    if (parts.length > 1) {
+      const keyCandidate = parts[1].trim();
+      const waitMsg = await ctx.reply('🔍 <i>Gemini API kaliti tekshirilmoqda...</i>', { parse_mode: 'HTML' });
+      const { validateAndSetGeminiKey } = require('../services/aiService');
+      const res = await validateAndSetGeminiKey(keyCandidate);
+      await ctx.api.deleteMessage(ctx.chat.id, waitMsg.message_id).catch(() => {});
+      if (res.ok) {
+        return ctx.reply(
+          `✅ <b>Ajoyib! Gemini AI kaliti muvaffaqiyatli ulandi!</b>\n\n` +
+          `Endi ovozli xabarlar, dumaloq videolar va to'lov cheklarini bemalol yuborishingiz mumkin! 🎉`,
+          { parse_mode: 'HTML', reply_markup: getMainKeyboard() }
+        );
+      } else {
+        return ctx.reply(
+          `❌ <b>Kalit tekshirilmadi:</b>\n<code>${res.error}</code>\n\n` +
+          `Iltimos, yangi kalitni <a href="https://aistudio.google.com/app/apikey">Google AI Studio</a> dan olib, qaytadan yuboring: <code>/setkey KALITINGIZ</code>`,
+          { parse_mode: 'HTML' }
+        );
+      }
+    }
+    return ctx.reply(
+      `⚠️ <b>Format:</b> <code>/setkey API_KALITINGIZ</code>\n\n` +
+      `Bepul yangi kalit olish: https://aistudio.google.com/app/apikey`,
+      { parse_mode: 'HTML' }
+    );
+  }
+
+  // Live Currency Rates command
+  if (text === '💱 Valyuta kursi' || text === '/kurs' || text === '/valyuta') {
+    const { formatRatesMessage } = require('../services/currencyService');
+    const msg = await formatRatesMessage();
+    return ctx.reply(msg, { parse_mode: 'HTML' });
+  }
+
+  // Quick 1-click expenses
+  if (text === '⚡️ Tezkor xarajat' || text === '/tezkor' || text === '/quick') {
+    const { getQuickExpenseKeyboard } = require('../utils/keyboards');
+    return ctx.reply(
+      `⚡️ <b>Tezkor xarajat kiritish:</b>\n\n` +
+      `Eng ko'p ishlatiladigan xarajatni 1 ta tugma bilan saqlang:`,
+      { parse_mode: 'HTML', reply_markup: getQuickExpenseKeyboard() }
+    );
+  }
+
+  // Financial Health Score
+  if (text === '🏆 Moliyaviy baho' || text === '/baho' || text === '/health') {
+    const { calculateFinancialHealth } = require('../services/financialHealthService');
+    const monthStr = getCurrentMonthString();
+    const summary = db.getUserFinancialSummary(userId, monthStr);
+    const msg = calculateFinancialHealth(summary, firstName);
+    return ctx.reply(msg, { parse_mode: 'HTML' });
+  }
+
+  // Quick undo of latest expense
+  if (text === '/undo' || text === '🗑 Oxirgisini o\'chirish') {
+    return handleUndoLastExpense(ctx);
+  }
+
   // Check limit command: e.g. "/limit 5000000"
   if (text.startsWith('/limit')) {
     const parts = text.split(' ');
@@ -331,18 +392,24 @@ async function handleHelpCommand(ctx) {
     `<b>1. Xarajat va Daromad kiritish:</b>\n` +
     `• 🎙 <b>Ovozli xabar:</b> Gapiring (masalan: <i>"Bozorga 180 ming, dorixonaga 35 ming ketdi"</i>).\n` +
     `• 📹 <b>Dumaloq video:</b> Video orqali ham tushunadi.\n` +
-    `• 🧾 <b>Chek fotosi:</b> Do'kon cheki yoki Click/Payme skrinshotini rasm qilib yuboring.\n` +
-    `• ✍️ <b>Matn:</b> Istalgan shaklda yozing.\n\n` +
+    `• 🧾 <b>Chek fotosi:</b> Do'kon cheki yoki to'lov skrinshotini rasm qilib yuboring.\n` +
+    `• ✍️ <b>Matn:</b> <i>"Tushlik 45000"</i>, <i>"Oylik 6 mln"</i>, <i>"50 dollar benzinga"</i>.\n` +
+    `• ⚡️ <b>Tezkor xarajat:</b> 1 ta tugma bilan tezkor yozish (Kofe, Taksi, Benzin).\n\n` +
     `<b>2. Qarzlar va Jamg'armalar:</b>\n` +
-    `• Qarz: <i>"Aliga 100 ming qarz berdim"</i> yoki <i>"Sobirdan 50 ming qarz oldim"</i>.\n` +
-    `• Maqsad: <code>/yangi_maqsad iPhone 15000000</code>.\n` +
-    `• Doimiy to'lov: <code>/doimiy Internet 150000 5</code>.\n\n` +
-    `<b>3. Hisobotlar va Tahlil:</b>\n` +
-    `• <b>📊 Oylik hisobot</b> — barcha kategoriyalar foizlari bilan\n` +
-    `• <b>📈 Infografika</b> — chiroyli doiraviy va ustunli diagrammalar\n` +
-    `• <b>📥 Excel hisobot</b> — to'liq filtrlanadigan .xlsx fayl\n` +
-    `• <b>💡 AI Maslahatchi</b> — xarajatlaringiz asosida tejash strategiyasi\n` +
-    `• <b>⚙️ Sozlamalar</b> — eslatmalar va ma'lumotlarni boshqarish`;
+    `• 🤝 Qarz: <i>"Aliga 100 ming qarz berdim"</i> yoki <i>"Sobirdan 50 ming qarz oldim"</i>.\n` +
+    `• 🎯 Maqsad: <code>/yangi_maqsad iPhone 15000000</code>.\n` +
+    `• 🔄 Doimiy to'lov: <code>/doimiy Internet 150000 5</code>.\n\n` +
+    `<b>3. Tahlil va Maslahatlar:</b>\n` +
+    `• 📊 <b>Oylik hisobot</b> — barcha kategoriyalar foizlari bilan\n` +
+    `• 📈 <b>Infografika</b> — chiroyli doiraviy va ustunli grafiklar\n` +
+    `• 📥 <b>Excel hisobot</b> — to'liq filtrlanadigan .xlsx jadval\n` +
+    `• 🏆 <b>Moliyaviy baho</b> — 100 ballik moliyaviy salomatlik reytingi\n` +
+    `• 💱 <b>Valyuta kursi</b> — Markaziy Bankning rasmiy jonli kurslari\n` +
+    `• 💡 <b>AI Maslahatchi</b> — xarajatlaringiz asosida tejash strategiyasi\n\n` +
+    `<b>4. Qo'shimcha buyruqlar:</b>\n` +
+    `• <code>/undo</code> — oxirgi xato kiritilgan xarajatni o'chirish\n` +
+    `• <code>/limit 5000000</code> — oylik xarajatlar chegarasini belgilash\n` +
+    `• <code>/setkey KALIT</code> — Gemini AI kalitini yangilash`;
 
   return ctx.reply(helpText, {
     parse_mode: 'HTML',
