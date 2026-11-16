@@ -97,7 +97,7 @@ setInterval(async () => {
 // Cloud & Webhook configuration
 const http = require('node:http');
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 const isCloud = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
 
 const server = http.createServer((req, res) => {
@@ -149,6 +149,17 @@ const server = http.createServer((req, res) => {
     version: '2.5-flash-pro-features',
     uptime: Math.round(process.uptime()) + 's'
   }));
+});
+
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`[Port Warning] Port ${PORT} band bo'lgani sababli, HTTP serversiz to'g'ridan-to'g'ri Telegram polling boshlanmoqda...`);
+    if (!isCloud) {
+      startPollingLoop();
+    }
+  } else {
+    console.error('[Server Error]:', err.message);
+  }
 });
 
 server.listen(PORT, async () => {
