@@ -5,4 +5,7 @@ data/exports/
 .DS_Store
 *.db-shm
 *.db-wal
+cloudflared.exe
+tunnel_url.txt
+failover_state.json
 

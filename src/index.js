@@ -98,7 +98,12 @@ setInterval(async () => {
 const http = require('node:http');
 
 const PORT = process.env.PORT || 3001;
-const isCloud = Boolean(process.env.RENDER || process.env.RENDER_EXTERNAL_URL);
+const isCloud = Boolean(
+  process.env.RENDER ||
+  process.env.RENDER_EXTERNAL_URL ||
+  process.env.TUNNEL_URL ||
+  process.env.USE_WEBHOOK === 'true'
+);
 
 const server = http.createServer((req, res) => {
   // Telegram Webhook endpoint (Acknowledge immediately in <2ms, process update asynchronously)
@@ -176,7 +181,7 @@ server.listen(PORT, async () => {
 
   if (isCloud) {
     try {
-      const baseUrl = (process.env.RENDER_EXTERNAL_URL || 'https://telegram-buxgalter.onrender.com').replace(/\/$/, '');
+      const baseUrl = (process.env.TUNNEL_URL || process.env.RENDER_EXTERNAL_URL || 'https://telegram-buxgalter.onrender.com').replace(/\/$/, '');
       const webhookUrl = `${baseUrl}/webhook`;
       console.log(`📡 Setting Telegram Webhook to: ${webhookUrl}`);
       
