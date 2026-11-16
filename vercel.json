@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://load-auction-hook-remedies.trycloudflare.com/$1"
+      "dest": "https://postcards-patch-seasonal-armed.trycloudflare.com/$1"
     }
   ]
 }
