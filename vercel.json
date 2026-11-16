@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://telegram-buxgalter.onrender.com/$1"
+      "dest": "https://load-auction-hook-remedies.trycloudflare.com/$1"
     }
   ]
 }
