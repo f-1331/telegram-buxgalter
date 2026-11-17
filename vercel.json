@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://groundwater-essentially-concord-link.trycloudflare.com/$1"
+      "dest": "https://fleet-miniature-rangers-filters.trycloudflare.com/$1"
     }
   ]
 }
