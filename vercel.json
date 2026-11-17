@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://postcards-patch-seasonal-armed.trycloudflare.com/$1"
+      "dest": "https://brook-granted-conditioning-wheel.trycloudflare.com/$1"
     }
   ]
 }
