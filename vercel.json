@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://brook-granted-conditioning-wheel.trycloudflare.com/$1"
+      "dest": "https://groundwater-essentially-concord-link.trycloudflare.com/$1"
     }
   ]
 }
