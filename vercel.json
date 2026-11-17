@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://fleet-miniature-rangers-filters.trycloudflare.com/$1"
+      "dest": "https://auctions-bizrate-harrison-forest.trycloudflare.com/$1"
     }
   ]
 }
