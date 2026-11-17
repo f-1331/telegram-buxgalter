@@ -9,4 +9,6 @@ __pycache__/
 cloudflared.exe
 tunnel_url.txt
 failover_state.json
+data/*.db
+data/expenses.db
 

@@ -33,9 +33,22 @@ const bot = new Bot(config.BOT_TOKEN);
 // Global error handler so the bot never crashes unexpectedly
 bot.catch((err) => {
   const ctx = err.ctx;
-  console.error(`[Bot Error] Update ${ctx.update.update_id} qayta ishlashda xatolik:`);
+  console.error(`[Bot Error] Update ${ctx?.update?.update_id} qayta ishlashda xatolik:`);
   const e = err.error;
-  console.error(e.message || e);
+  console.error(e?.message || e);
+});
+
+// Incoming activity logger
+bot.use(async (ctx, next) => {
+  const from = ctx.from ? `${ctx.from.first_name || ''} (@${ctx.from.username || ctx.from.id})` : 'unknown';
+  const desc = ctx.message?.text
+    ? `"${ctx.message.text}"`
+    : (ctx.message?.voice ? `[Voice: ${ctx.message.voice.duration}s]`
+    : (ctx.message?.photo ? `[Photo/Chek]`
+    : (ctx.message?.video_note ? `[Video Note]`
+    : (ctx.callbackQuery ? `[Button: ${ctx.callbackQuery.data}]` : '[Boshqa]'))));
+  console.log(`📥 [Telegram Update] From: ${from} | Content: ${desc}`);
+  await next();
 });
 
 // Register Voice, Audio, and Video Note handlers

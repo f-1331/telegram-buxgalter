@@ -1,3 +1,3 @@
 Set WshShell = CreateObject("WScript.Shell")
-WshShell.Run "node src/index.js", 0, False
+WshShell.Run "cmd /c START_SERVER.bat", 0, False
 Set WshShell = Nothing
