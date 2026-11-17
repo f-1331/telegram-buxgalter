@@ -3,7 +3,7 @@
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "https://auctions-bizrate-harrison-forest.trycloudflare.com/$1"
+      "dest": "https://empire-treasury-today-density.trycloudflare.com/$1"
     }
   ]
 }
