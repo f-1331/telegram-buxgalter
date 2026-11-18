@@ -1,0 +1,157 @@
+export const CATEGORIES = {
+  // --- CHIQIM (XARAJATLAR) ---
+  'Transport': {
+    name: 'Transport',
+    emoji: '🚕',
+    color: '#3B82F6',
+    type: 'expense',
+    keywords: ['taksi', 'taxi', 'metro', 'benzin', 'metan', 'propan', 'avtobus', 'yolkira', "yo'lkira", 'moy', 'moyka', 'zapchast', 'parkovka', 'yandex', 'indrive', 'mashina']
+  },
+  'Oziq-ovqat va Kafe': {
+    name: 'Oziq-ovqat va Kafe',
+    emoji: '🍔',
+    color: '#EF4444',
+    type: 'expense',
+    keywords: ['tushlik', 'obed', 'ovqat', 'kafe', 'restoran', 'choyxona', 'kofe', 'nonushta', 'shashlik', 'lavash', 'pizza', 'burger', 'fastfud', 'fastfood', 'osh', 'somsa', 'lagmon', "lag'mon"]
+  },
+  'Bozor va Supermarket': {
+    name: 'Bozor va Supermarket',
+    emoji: '🛒',
+    color: '#10B981',
+    type: 'expense',
+    keywords: ['bozor', 'bozorlik', 'supermarket', 'korzinka', 'makro', 'havas', 'gosht', "go'sht", 'kartoshka', 'sabzi', 'meva', 'sabzavot', 'non', 'un', 'yog', "yog'", 'sut', 'tuxum', 'shirinlik', 'oziq-ovqat']
+  },
+  'Kommunal va Aloqa': {
+    name: 'Kommunal va Aloqa',
+    emoji: '💡',
+    color: '#F59E0B',
+    type: 'expense',
+    keywords: ['svet', 'elektr', 'gaz', 'suv', 'otopleniye', 'chiqindi', 'internet', 'wifi', 'ucell', 'beeline', 'mobiuz', 'uztelecom', 'paynet', 'telefon', 'balans', 'aloqa']
+  },
+  'Salomatlik va Dorixona': {
+    name: 'Salomatlik va Dorixona',
+    emoji: '💊',
+    color: '#EC4899',
+    type: 'expense',
+    keywords: ['dori', 'apteka', 'dorixona', 'shifokor', 'vrach', 'doktor', 'stomatolog', 'klinika', 'tish', 'ukol', 'analiz', 'kasalxona', 'rentgen']
+  },
+  'Kiyim va Xaridlar': {
+    name: 'Kiyim va Xaridlar',
+    emoji: '🛍',
+    color: '#8B5CF6',
+    type: 'expense',
+    keywords: ['kiyim', 'shim', 'koylak', "ko'ylak", 'poyabzal', 'tufli', 'krossovka', 'kurtka', 'sumka', 'soat', 'texnika', 'gadjet', 'xarid', 'xaridlar']
+  },
+  "Ta'lim va Kitoblar": {
+    name: "Ta'lim va Kitoblar",
+    emoji: '🎓',
+    color: '#06B6D4',
+    type: 'expense',
+    keywords: ['kurs', 'uqish', "o'qish", 'kontrakt', 'dars', 'repetitor', 'kitob', 'daftar', 'maktab', 'universitet', 'institut', 'kurslar']
+  },
+  "Hordiq va O'yin-kulgi": {
+    name: "Hordiq va O'yin-kulgi",
+    emoji: '🎮',
+    color: '#F97316',
+    type: 'expense',
+    keywords: ['kino', 'teatr', 'konsert', 'istirohat', 'sayohat', 'dam', 'basseyn', 'bowling', 'oyin', "o'yin", 'ps', 'playstation', 'klub']
+  },
+  "Ehson va Sovg'alar": {
+    name: "Ehson va Sovg'alar",
+    emoji: '🎁',
+    color: '#84CC16',
+    type: 'expense',
+    keywords: ['ehson', 'sadaqa', 'xayriya', 'toyona', "to'yona", 'sovga', "sovg'a", 'hadya', 'qarindosh']
+  },
+  "Uy va Ro'zg'or": {
+    name: "Uy va Ro'zg'or",
+    emoji: '🏠',
+    color: '#14B8A6',
+    type: 'expense',
+    keywords: ['mebel', 'gilam', 'idish', 'tamir', "ta'mir", 'remont', 'tozalash', 'usta', 'chiroq', 'rozgor', "ro'zg'or", 'ijara']
+  },
+  'Boshqa': {
+    name: 'Boshqa',
+    emoji: '📦',
+    color: '#6B7280',
+    type: 'expense',
+    keywords: []
+  },
+
+  // --- KIRIM (DAROMADLAR) ---
+  'Oylik va Ish haqi': {
+    name: 'Oylik va Ish haqi',
+    emoji: '💰',
+    color: '#059669',
+    type: 'income',
+    keywords: ['oylik', 'avans', 'maosh', 'zarplata', 'ish haqi', 'premiya', 'bonus']
+  },
+  'Biznes va Savdo': {
+    name: 'Biznes va Savdo',
+    emoji: '💼',
+    color: '#2563EB',
+    type: 'income',
+    keywords: ['savdo', 'biznes', 'daromad', 'foyda', 'magazin', 'dokon', "do'kon", 'sotuv']
+  },
+  'Frilans va Xizmatlar': {
+    name: 'Frilans va Xizmatlar',
+    emoji: '💻',
+    color: '#7C3AED',
+    type: 'income',
+    keywords: ['frilans', 'freelance', 'loyixa', 'mijoz', 'xizmat', 'dastur', 'zakaz']
+  },
+  'Qarz qaytishi': {
+    name: 'Qarz qaytishi',
+    emoji: '🤝',
+    color: '#0D9488',
+    type: 'income',
+    keywords: ['qarzimni qaytardi', 'qarz bergan edim', 'qaytarib berdi']
+  },
+  'Keshbek va Mukofot': {
+    name: 'Keshbek va Mukofot',
+    emoji: '✨',
+    color: '#D97706',
+    type: 'income',
+    keywords: ['keshbek', 'cashback', 'yutuq', "sovg'a puli", 'dividend', 'foiz']
+  },
+  'Boshqa daromad': {
+    name: 'Boshqa daromad',
+    emoji: '📈',
+    color: '#16A34A',
+    type: 'income',
+    keywords: ['tushum', 'kirim', 'daromad']
+  }
+};
+
+export function getCategoryEmoji(catName) {
+  if (!catName) return '📦';
+  const low = catName.toLowerCase();
+  for (const [key, val] of Object.entries(CATEGORIES)) {
+    if (key.toLowerCase() === low || low.includes(key.toLowerCase())) {
+      return val.emoji;
+    }
+  }
+  return '📦';
+}
+
+export function getCategoryColor(catName) {
+  if (!catName) return '#6B7280';
+  const low = catName.toLowerCase();
+  for (const [key, val] of Object.entries(CATEGORIES)) {
+    if (key.toLowerCase() === low || low.includes(key.toLowerCase())) {
+      return val.color;
+    }
+  }
+  return '#6B7280';
+}
+
+export function normalizeCategory(catName, type = 'expense') {
+  if (!catName) return type === 'income' ? 'Boshqa daromad' : 'Boshqa';
+  const clean = catName.trim().toLowerCase();
+  for (const key of Object.keys(CATEGORIES)) {
+    if (clean === key.toLowerCase() || clean.includes(key.toLowerCase())) {
+      return key;
+    }
+  }
+  return type === 'income' ? 'Boshqa daromad' : 'Boshqa';
+}

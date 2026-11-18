@@ -10,13 +10,19 @@ import time
 from pathlib import Path
 import httpx
 
+BASE_DIR = Path(__file__).resolve().parent
+LOG_FILE = BASE_DIR / "ha_unified_server.log"
+
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)-8s | %(name)s : %(message)s"
+    format="%(asctime)s | %(levelname)-8s | %(name)s : %(message)s",
+    handlers=[
+        logging.FileHandler(LOG_FILE, encoding="utf-8"),
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger("unified_ha_server")
 
-BASE_DIR = Path(__file__).resolve().parent
 LOCAL_PORT = 3001
 BOT_TOKEN = "8852836604:AAE-GZMzxp-aN1m3MCwX7ffNF6JJDyTdpWU"
 OWNER_TELEGRAM_ID = 6707839718
@@ -148,61 +154,60 @@ def delete_telegram_webhook_for_local_polling() -> bool:
     return False
 
 
-def drain_pipe(proc):
-    """Continuously drain cloudflared stdout to prevent OS pipe buffer overflow."""
-    try:
-        while proc and proc.poll() is None:
-            line = proc.stdout.readline()
-            if not line:
-                break
-    except Exception:
-        pass
-
-
 def start_cloudflared_tunnel():
-    """Start cloudflared in the background and extract the live HTTPS tunnel URL."""
+    """Start cloudflared in the background and extract the live HTTPS tunnel URL without blocking."""
     cf_binary = BASE_DIR / "cloudflared.exe"
     if not cf_binary.exists():
         logger.error(f"cloudflared.exe topilmadi: {cf_binary}")
         return None, None
 
     cmd = [str(cf_binary), "tunnel", "--url", f"http://127.0.0.1:{LOCAL_PORT}", "--no-autoupdate"]
-    logger.info(f"Cloudflare Tunnel ishga tushirilmoqda: http://127.0.0.1:{LOCAL_PORT} ...")
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        text=True,
-        bufsize=1
-    )
-
-    tunnel_url = None
-    start = time.time()
-    while time.time() - start < 35:
-        line = proc.stdout.readline()
-        if not line:
-            time.sleep(0.1)
-            continue
-        line_clean = line.strip()
-        if "trycloudflare.com" in line_clean:
-            match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_clean)
-            if match:
-                tunnel_url = match.group(0)
-                break
-
-    if not tunnel_url:
-        logger.error("35 soniya ichida tunnel URL olinmadi.")
-        proc.terminate()
+    logger.info(f"Cloudflare Tunnel fon rejimida boshlanmoqda: http://127.0.0.1:{LOCAL_PORT}...")
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1
+        )
+    except Exception as e:
+        logger.warning(f"cloudflared ishga tushirishda xatolik: {e}")
         return None, None
 
-    # Continuously drain stdout
-    threading.Thread(target=drain_pipe, args=(proc,), daemon=True).start()
+    tunnel_url_holder = [None]
 
-    logger.info(f"✅ Jonli Cloudflare Tunnel manzili: {tunnel_url}")
-    with open(BASE_DIR / "tunnel_url.txt", "w", encoding="utf-8") as f:
-        f.write(tunnel_url)
+    def read_tunnel_output():
+        try:
+            for line in iter(proc.stdout.readline, ''):
+                if not line:
+                    break
+                line_clean = line.strip()
+                if "trycloudflare.com" in line_clean:
+                    match = re.search(r"https://[a-zA-Z0-9-]+\.trycloudflare\.com", line_clean)
+                    if match:
+                        tunnel_url_holder[0] = match.group(0)
+                        logger.info(f"✅ Jonli Cloudflare Tunnel manzili: {tunnel_url_holder[0]}")
+                        try:
+                            with open(BASE_DIR / "tunnel_url.txt", "w", encoding="utf-8") as f:
+                                f.write(tunnel_url_holder[0])
+                        except Exception:
+                            pass
+        except Exception:
+            pass
 
-    return proc, tunnel_url
+    t = threading.Thread(target=read_tunnel_output, daemon=True)
+    t.start()
+
+    # Wait at most 8 seconds for tunnel URL in background thread without freezing!
+    start = time.time()
+    while time.time() - start < 8:
+        if tunnel_url_holder[0]:
+            return proc, tunnel_url_holder[0]
+        time.sleep(0.5)
+
+    logger.warning("Cloudflare tunnel 8s ichida olinmadi (yoki 429 limit). Lokal polling to'siqsiz davom etmoqda.")
+    return proc, None
 
 
 def start_node_bot():
@@ -245,30 +250,27 @@ def main():
     kill_existing_port_listeners(LOCAL_PORT)
     time.sleep(1)
 
-    # 2. Start local Node.js bot server
-    node_proc = start_node_bot()
-
-    # Wait up to 10s for local bot to report healthy
-    for _ in range(20):
-        time.sleep(0.5)
-        if is_local_server_healthy():
-            break
-
-    if is_local_server_healthy():
-        logger.info("✅ Lokal Buxgalter bot serveri faol ishlamoqda!")
-    else:
-        logger.warning("⚠️ Lokal server hali /health ga javob bermadi, davom etilmoqda...")
-
-    # 3. Start Cloudflare Tunnel
-    cf_proc, tunnel_url = start_cloudflared_tunnel()
-
-    # 4. Check initial health of Render
+    # 2. Check initial health of Render first
     state = load_state()
     render_alive = is_render_healthy()
+    node_proc = None
+    cf_proc = None
+    tunnel_url = None
 
     if not render_alive:
         logger.warning("🚨 Render hozirda ishlamayapti (503 Limit)! Zaxira lokal rejim faollashtirilmoqda...")
         delete_telegram_webhook_for_local_polling()
+        node_proc = start_node_bot()
+        for _ in range(20):
+            time.sleep(0.5)
+            if is_local_server_healthy():
+                break
+        if is_local_server_healthy():
+            logger.info("✅ Lokal Buxgalter bot serveri faol ishlamoqda!")
+        else:
+            logger.warning("⚠️ Lokal server hali /health ga javob bermadi, davom etilmoqda...")
+
+        cf_proc, tunnel_url = start_cloudflared_tunnel()
         if tunnel_url:
             update_vercel_json_and_push(tunnel_url, "TUNNEL")
         state["current_target"] = "TUNNEL"
@@ -283,7 +285,7 @@ def main():
             f"✅ Buxgalter boti 100% uzilishsiz ishlamoqda!"
         )
     else:
-        logger.info("Render faol (200 OK). Webhook Render bulutiga yo'naltirilmoqda...")
+        logger.info("🎉 Render faol (200 OK). Webhook Render bulutiga yo'naltirilmoqda (lokal polling o'chiq)...")
         set_telegram_webhook_to_render()
         update_vercel_json_and_push(RENDER_URL, "RENDER")
         state["current_target"] = "RENDER"
@@ -302,72 +304,85 @@ def main():
 
     try:
         while True:
-            time.sleep(3)
-            now = time.time()
+            try:
+                time.sleep(3)
+                now = time.time()
 
-            # --- PROCESS GUARDIAN ---
-            # Auto-restart Node.js if died
-            if node_proc and node_proc.poll() is not None:
-                logger.warning("⚠️ Node.js serveri to'xtab qoldi! 2 soniyada qayta ishga tushirilmoqda...")
-                time.sleep(2)
-                node_proc = start_node_bot()
+                # --- PROCESS GUARDIAN (Faqat zaxira TUNNEL rejimida) ---
+                if state.get("current_target") == "TUNNEL":
+                    if node_proc is None or node_proc.poll() is not None:
+                        logger.warning("⚠️ Node.js serveri to'xtab qoldi! 2 soniyada qayta ishga tushirilmoqda...")
+                        time.sleep(2)
+                        node_proc = start_node_bot()
 
-            # Auto-restart Cloudflared if died
-            if cf_proc and cf_proc.poll() is not None:
-                logger.warning("⚠️ Cloudflare tunnel uzildi! Qayta ulanmoqda...")
-                cf_proc, new_url = start_cloudflared_tunnel()
-                if new_url:
-                    tunnel_url = new_url
-                    logger.info(f"🔄 Yangi tunnel URL: {tunnel_url}")
-                    if state.get("current_target") == "TUNNEL":
-                        update_vercel_json_and_push(tunnel_url, "TUNNEL")
-
-            # --- BI-DIRECTIONAL 90s HEALTH WATCHDOG ---
-            if now - last_health_check >= CHECK_INTERVAL_SECONDS:
-                last_health_check = now
-                current_target = state.get("current_target", "UNKNOWN")
-                render_now = is_render_healthy()
-
-                if render_now:
-                    state["render_success_count"] = state.get("render_success_count", 0) + 1
-                    state["render_fail_count"] = 0
-                    logger.info(f"[HEALTH] Render: UP (streak: {state['render_success_count']}) | Target: {current_target}")
-
-                    # FAILBACK TO RENDER: Render 2 marta ketma-ket muvaffaqiyatli bo'lsa va joriy holat TUNNEL bo'lsa
-                    if current_target == "TUNNEL" and state["render_success_count"] >= 2:
-                        logger.info("🎉 RENDER TIKLANDI! Asosiy Render serveriga qaytarilmoqda...")
-                        set_telegram_webhook_to_render()
-                        update_vercel_json_and_push(RENDER_URL, "RENDER")
-                        state["current_target"] = "RENDER"
-                        state["last_switch_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                        save_state(state)
-                        notify_owner(
-                            "🎉 <b>Render limiti yangilandi va server to'liq tiklandi!</b>\n\n"
-                            f"Tizim avtomatik ravishda asosiy <b>Render bulut serveriga</b> (<code>{RENDER_URL}</code>) qaytarildi.\n\n"
-                            "✅ Buxgalter boti yana to'liq bulutda 24/7 uzluksiz ishlamoqda!"
-                        )
-                else:
-                    state["render_fail_count"] = state.get("render_fail_count", 0) + 1
-                    state["render_success_count"] = 0
-                    logger.warning(f"[HEALTH] Render: DOWN (streak: {state['render_fail_count']}) | Target: {current_target}")
-
-                    # FAILOVER TO TUNNEL: Render 2 marta ketma-ket 503 bersa va target RENDER bo'lsa
-                    if current_target != "TUNNEL" and state["render_fail_count"] >= 2:
-                        logger.warning("🚨 RENDER TO'XTATILDI (503)! Zaxira rejimga o'tkazilmoqda...")
-                        delete_telegram_webhook_for_local_polling()
-                        if tunnel_url:
+                    if cf_proc and cf_proc.poll() is not None:
+                        logger.warning("⚠️ Cloudflare tunnel uzildi! Qayta ulanmoqda...")
+                        cf_proc, new_url = start_cloudflared_tunnel()
+                        if new_url:
+                            tunnel_url = new_url
+                            logger.info(f"🔄 Yangi tunnel URL: {tunnel_url}")
                             update_vercel_json_and_push(tunnel_url, "TUNNEL")
-                        state["current_target"] = "TUNNEL"
-                        state["last_switch_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
-                        save_state(state)
-                        notify_owner(
-                            "⚠️ <b>Render limiti tugadi yoki server to'xtab qoldi (503)!</b>\n\n"
-                            "Tizim uzilishsiz ishlashi uchun so'rovlar avtomatik ravishda <b>Zaxira (Cloudflare Tunnel)</b> serveriga ulandi.\n"
-                            f"🌐 Jonli zaxira manzili: <code>{tunnel_url or 'Lokal Polling'}</code>\n\n"
-                            "✅ Telegram Buxgalter boti 100% uzilishsiz ishlamoqda!"
-                        )
 
-                save_state(state)
+                # --- BI-DIRECTIONAL 90s HEALTH WATCHDOG ---
+                if now - last_health_check >= CHECK_INTERVAL_SECONDS:
+                    last_health_check = now
+                    current_target = state.get("current_target", "UNKNOWN")
+                    render_now = is_render_healthy()
+
+                    if render_now:
+                        state["render_success_count"] = state.get("render_success_count", 0) + 1
+                        state["render_fail_count"] = 0
+                        logger.info(f"[HEALTH] Render: UP (streak: {state['render_success_count']}) | Target: {current_target}")
+
+                        # FAILBACK TO RENDER: Render 2 marta ketma-ket muvaffaqiyatli bo'lsa va joriy holat TUNNEL bo'lsa
+                        if current_target == "TUNNEL" and state["render_success_count"] >= 2:
+                            logger.info("🎉 RENDER TIKLANDI! Lokal polling to'xtatilib, Render bulutiga qaytarilmoqda...")
+                            if node_proc and node_proc.poll() is None:
+                                node_proc.terminate()
+                                node_proc = None
+                            if cf_proc and cf_proc.poll() is None:
+                                cf_proc.terminate()
+                                cf_proc = None
+                            time.sleep(1)
+                            set_telegram_webhook_to_render()
+                            update_vercel_json_and_push(RENDER_URL, "RENDER")
+                            state["current_target"] = "RENDER"
+                            state["last_switch_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                            save_state(state)
+                            notify_owner(
+                                "🎉 <b>Render limiti yangilandi va server to'liq tiklandi!</b>\n\n"
+                                f"Tizim avtomatik ravishda asosiy <b>Render bulut serveriga</b> (<code>{RENDER_URL}</code>) qaytarildi.\n\n"
+                                "✅ Buxgalter boti yana to'liq bulutda 24/7 uzluksiz ishlamoqda!"
+                            )
+                    else:
+                        state["render_fail_count"] = state.get("render_fail_count", 0) + 1
+                        state["render_success_count"] = 0
+                        logger.warning(f"[HEALTH] Render: DOWN (streak: {state['render_fail_count']}) | Target: {current_target}")
+
+                        # FAILOVER TO TUNNEL: Render 2 marta ketma-ket 503 bersa va target RENDER bo'lsa
+                        if current_target != "TUNNEL" and state["render_fail_count"] >= 2:
+                            logger.warning("🚨 RENDER TO'XTATILDI (503)! Zaxira rejimga o'tkazilmoqda...")
+                            delete_telegram_webhook_for_local_polling()
+                            if node_proc is None or node_proc.poll() is not None:
+                                node_proc = start_node_bot()
+                            if cf_proc is None or cf_proc.poll() is not None:
+                                cf_proc, tunnel_url = start_cloudflared_tunnel()
+                            if tunnel_url:
+                                update_vercel_json_and_push(tunnel_url, "TUNNEL")
+                            state["current_target"] = "TUNNEL"
+                            state["last_switch_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
+                            save_state(state)
+                            notify_owner(
+                                "⚠️ <b>Render limiti tugadi yoki server to'xtab qoldi (503)!</b>\n\n"
+                                "Tizim uzilishsiz ishlashi uchun so'rovlar avtomatik ravishda <b>Zaxira (Cloudflare Tunnel)</b> serveriga ulandi.\n"
+                                f"🌐 Jonli zaxira manzili: <code>{tunnel_url or 'Lokal Polling'}</code>\n\n"
+                                "✅ Telegram Buxgalter boti 100% uzilishsiz ishlamoqda!"
+                            )
+
+                    save_state(state)
+            except Exception as loop_e:
+                logger.error(f"Watchdog tsiklida xatolik: {loop_e}", exc_info=True)
+                time.sleep(5)
 
     except KeyboardInterrupt:
         logger.info("\nFoydalanuvchi tomonidan to'xtatildi...")
@@ -380,4 +395,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        logger.critical(f"FATAL CRASH in main(): {e}", exc_info=True)
